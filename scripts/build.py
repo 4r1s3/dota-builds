@@ -376,10 +376,15 @@ def main():
     item_dict = {k: {"name": items[k].get("dname", k), "img": CDN + items[k]["img"].split("?")[0],
                      "cost": items[k].get("cost")}
                  for k in used_items if k in items and items[k].get("img")}
+    # тексты талантов с реальными числами (из STRATZ), иначе OpenDota с плейсхолдерами
+    resolved = {}
+    tfile = Path(__file__).with_name("talents_en.json")
+    if tfile.exists():
+        resolved = json.loads(tfile.read_text())
     talent_names = {}
     for hname, ha in hero_abilities.items():
         for t in ha.get("talents", []):
-            talent_names[t["name"]] = abilities.get(t["name"], {}).get("dname", t["name"])
+            talent_names[t["name"]] = resolved.get(t["name"]) or abilities.get(t["name"], {}).get("dname", t["name"])
     ab_dict = {k: {"name": abilities[k].get("dname", k),
                    "img": CDN + abilities[k]["img"] if abilities[k].get("img") else None}
                for k in used_abilities if k in abilities}

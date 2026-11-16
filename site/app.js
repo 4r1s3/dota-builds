@@ -17,7 +17,7 @@ const ago = ts => {
 
 function talentName(key) {
   const raw = DB.talents[key] || key;
-  return raw.replace(/\{s:[^}]+\}/g, "X").replace(/\s+/g, " ");
+  return raw.replace(/\{s:[^}]+\}/g, "?").replace(/\s+/g, " ");
 }
 
 // ---------- поиск
@@ -86,27 +86,33 @@ async function showHero(id, pos) {
 
   const skills = d.skills.map((s, i) => {
     if (s.startsWith("special_bonus")) {
-      return `<div class="sk" data-tip="${esc(talentName(s))}"><div class="tl">T</div>${i + 1}</div>`;
+      const row = d.talents.find(t => t.options.some(o => o.name === s));
+      const right = row && row.options[0].name === s;
+      return `<div class="sk" data-tip="Талант ${row ? row.level : ""}: ${esc(talentName(s))}"><div class="tl">${right ? "▶" : "◀"}<small>${row ? row.level : ""}</small></div>${i + 1}</div>`;
     }
     const a = DB.abilities[s] || {name: s};
     return `<div class="sk" data-tip="${esc(a.name)}">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${i + 1}</div>`;
   }).join("");
 
   const talents = [...d.talents].reverse().map(t => {
-    const [L, R] = t.options;
+    const [R, L] = t.options; // в игре первый талант уровня — справа
     const opt = o => !o ? "<div></div>" : `<div class="topt ${t.sample && o.pick >= .5 ? "pick" : ""}">
       <span class="pc">${t.sample ? pct(o.pick) : "–"}</span>${esc(talentName(o.name))}
       <div class="bar" style="width:${o.pick * 100}%"></div></div>`;
     return `<div class="trow">${opt(L)}<div class="lv">${t.level}</div>${opt(R)}</div>`;
   }).join("");
 
-  const start = d.start.map(s => itemTile(s.key, `${s.count > 1 ? `<span class="cnt">×${s.count}</span>` : ""}${pct(s.share)}`, "it",
-    `${(DB.items[s.key] || {}).name || s.key} — берут в ${pct(s.share)} игр`)).join("");
-  const core = d.core.map((c, i) => (i ? `<span class="arrow">›</span>` : "") + itemTile(c.key,
-    `<b>${mins(c.time)}</b> · ${pct(c.share)}`, "it",
-    `${(DB.items[c.key] || {}).name} — ${pct(c.share)} игр, медиана ${mmss(c.time)}, винрейт ${pct(c.wr)}`)).join("");
-  const sit = d.situational.map(c => itemTile(c.key, `${pct(c.share)}`, "it",
-    `${(DB.items[c.key] || {}).name} — ${pct(c.share)} игр, ~${mmss(c.time)}, винрейт ${pct(c.wr)} (${c.n})`)).join("");
+  const nm = key => esc((DB.items[key] || {}).name || key);
+  const icon = key => (DB.items[key] || {}).img ? `<img loading="lazy" src="${DB.items[key].img}" alt="">` : "";
+  const bar = x => `<div class="pbar"><i style="width:${Math.round(x * 100)}%"></i></div>`;
+  const start = d.start.map(s => `<div class="ic" data-tip="${nm(s.key)} — берут в ${pct(s.share)} игр">
+      <div class="pic">${icon(s.key)}${s.count > 1 ? `<span class="cnt">×${s.count}</span>` : ""}</div>
+      <div class="nm">${nm(s.key)}</div>${bar(s.share)}<div class="sub">${pct(s.share)} игр</div></div>`).join("");
+  const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт с ним ${pct(c.wr)}">
+      <div class="pic">${icon(c.key)}<span class="step">${i + 1}</span></div>
+      <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр</div></div>`).join("");
+  const sit = d.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт ${pct(c.wr)} (${c.n} игр)">
+      <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин</div></div>`).join("");
 
   const th = DB.meta.thresholds;
   const games = d.pro.map(g => {
@@ -130,8 +136,8 @@ async function showHero(id, pos) {
     <h2>Прокачка скиллов</h2><div class="skills">${skills}</div>
     <h2>Таланты</h2><div class="talents">${talents}</div>
     <h2>Старт</h2><div class="items">${start || '<span class="stats">—</span>'}</div>
-    <h2>Кор-предметы (медиана минуты · % игр)</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
-    <h2>Ситуативно</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
+    <h2>Основной билд — по порядку покупки</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
+    <h2>Ситуативные предметы — по популярности</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
     <h2>Про-игры</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
     <div class="pro">${games}</div>`;
