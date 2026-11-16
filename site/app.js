@@ -143,7 +143,8 @@ async function showHero(id, pos) {
     if (g.flag === "stomp") badge = `<span class="badge stomp" data-tip="Перевес команды до ${k(g.maxAdv)} или GPM сильно выше обычного. Билд мог быть «жадным» — повторять только при таком же ходе игры">Игра шла очень хорошо · ${k(g.maxAdv)}</span>`;
     if (g.flag === "hard") badge = `<span class="badge hard" data-tip="Команда отставала до ${k(g.minAdv)}. Билд мог быть оборонительным">Тяжёлая игра · ${k(g.minAdv)}</span>`;
     const its = g.items.map(i => itemTile(i.key, mins(i.time), "gi" + (i.odd ? " odd" : ""),
-      `${(DB.items[i.key] || {}).name} — ${mmss(i.time)}, перевес команды ${k(i.adv)}${i.odd ? " · НЕ из стандартного билда" : ""}`)).join("");
+      `${(DB.items[i.key] || {}).name} — ${mmss(i.time)}, перевес команды ${k(i.adv)}${i.odd ? " · НЕ из стандартного билда" : ""}${i.why ? "\nПочему: " + i.why : ""}`)).join("");
+    const whys = g.items.filter(i => i.odd && i.why).map(i => `<div class="why"><b>${esc((DB.items[i.key] || {}).name || i.key)}</b> <span class="t">${mins(i.time)}</span> — ${esc(i.why)}</div>`).join("");
     return `<div class="game"><div class="ghead">
       <span class="pl">${esc(g.player)}</span>
       <span class="res ${g.win ? "w" : "l"}">${g.win ? "Победа" : "Поражение"}</span>
@@ -151,7 +152,7 @@ async function showHero(id, pos) {
       ${badge}
       <a href="https://www.opendota.com/matches/${g.match}" target="_blank" rel="noopener">OpenDota</a>
       <a href="https://stratz.com/matches/${g.match}" target="_blank" rel="noopener">STRATZ</a>
-    </div><div class="gitems">${its}</div></div>`;
+    </div><div class="gitems">${its}</div>${whys ? `<div class="whys">${whys}</div>` : ""}</div>`;
   }).join("");
 
   const maxOrder = useImm && raw.imm.maxOrder.length ? `<h2>Что качать в первую очередь (Immortal)</h2><div class="maxo">${raw.imm.maxOrder.map((m, i) => {

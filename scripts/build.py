@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import reasons  # noqa: E402
 import stratz  # noqa: E402
 
 API = "https://api.opendota.com/api"
@@ -283,6 +284,25 @@ def main():
             comp_cache[key] = res
         return comp_cache[key]
 
+    def first_buys_of(log):
+        seen = {}
+        for e in log:
+            k = e["key"]
+            if e["time"] > 0 and k not in seen and is_build_item(k):
+                seen[k] = e["time"]
+        for k, t in list(seen.items()):
+            if any(t <= t2 and k in comp_of(k2) for k2, t2 in seen.items() if k2 != k):
+                del seen[k]
+        return seen
+
+    fb_all = {}
+    for r in rows:
+        if r["purchase_log"]:
+            fb_all[(r["match_id"], r["hero_id"])] = first_buys_of(pg_array(r["purchase_log"]))
+    lifts = reasons.lift_table(matches, fb_all)
+    item_names = {k: v.get("dname", k) for k, v in items.items()}
+    components = {c for v in items.values() for c in (v.get("components") or [])}
+
     groups = defaultdict(list)
     for r in rows:
         if r.get("pos") and r["purchase_log"] and r["abilities"]:
@@ -397,7 +417,15 @@ def main():
                 for k, t in sorted(fb.items(), key=lambda kv: kv[1]):
                     minute = max(0, t // 60)
                     a = team_adv[minute] if minute < len(team_adv) else (team_adv[-1] if team_adv else None)
-                    build.append({"key": k, "time": t, "adv": a, "odd": k not in standard})
+                    odd = k not in standard
+                    why = None
+                    if odd:
+                        enemies = [e["hero_id"] for e in matches[g["match_id"]]
+                                   if (e["player_slot"] < 128) != radiant]
+                        why = reasons.explain(k, t, team_adv, enemies,
+                                              {e: fb_all.get((g["match_id"], e), {}) for e in enemies},
+                                              heroes, lifts, item_names, components, g["duration"])
+                    build.append({"key": k, "time": t, "adv": a, "odd": odd, "why": why})
                 used_items.update(fb)
                 pro_games.append({
                     "match": g["match_id"], "player": g["pro_name"] or "аноним",

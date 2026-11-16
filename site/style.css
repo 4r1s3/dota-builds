@@ -97,3 +97,9 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)
 .maxo{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap}
 .maxo .sk{width:90px;font-size:11px;color:var(--text)}
 .maxo .sk b{color:var(--gold);font-size:10px}
+
+.tip{white-space:pre-line}
+.whys{margin-top:8px;border-top:1px dashed var(--line);padding-top:6px;display:grid;gap:3px}
+.why{font-size:12px;color:var(--dim)}
+.why b{color:var(--warn);font-weight:600}
+.why .t{color:var(--dim);font-size:11px}
