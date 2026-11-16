@@ -90,3 +90,10 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)
 .sk .tl{flex-direction:column;line-height:1}
 .sk .tl small{font-size:9px;font-weight:700}
 @media (max-width:600px){.ic{width:72px}.ic .pic,.ic .pic img{width:54px}.ic .pic img{height:39px}}
+
+.src{display:flex;gap:6px;align-items:center;margin-top:12px;color:var(--dim);font-size:13px;flex-wrap:wrap}
+.sbtn{padding:5px 10px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);cursor:pointer}
+.sbtn.on{border-color:var(--gold);color:var(--gold)}
+.maxo{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap}
+.maxo .sk{width:90px;font-size:11px;color:var(--text)}
+.maxo .sk b{color:var(--gold);font-size:10px}

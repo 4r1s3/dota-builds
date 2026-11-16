@@ -12,8 +12,12 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+
 from collections import Counter, defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import stratz  # noqa: E402
 
 API = "https://api.opendota.com/api"
 CDN = "https://cdn.cloudflare.steamstatic.com"
@@ -161,17 +165,59 @@ def median(xs):
     return int(statistics.median(xs)) if xs else None
 
 
-def greedy_sequence(seqs, length):
-    """На каждом уровне берём самый частый следующий скилл среди игр с тем же началом."""
-    out = []
-    for lvl in range(length):
-        pool = [s for s in seqs if len(s) > lvl and s[:lvl] == out]
+def greedy_sequence(seqs, length, talent_levels):
+    """Самый частый билд, но всегда «легальный».
+
+    ability_upgrades_arr — порядок очков, а не уровни героя (на 17, 19, 21–24 очков нет).
+    Ограничения берём из самих игр: максимум очков в способность и самый ранний номер
+    очка, на котором встречалось k-е вложение (так учитываются ульты и способности с 5 уровнями).
+    """
+    seqs = [s[:length] for s in seqs if s]
+    cap, gate = Counter(), {}
+    for s in seqs:
+        seen = Counter()
+        for i, a in enumerate(s):
+            seen[a] += 1
+            key = (a, seen[a])
+            gate[key] = min(gate.get(key, 99), i)
+        for a, c in seen.items():
+            cap[a] = max(cap[a], c)
+
+    out, have, tiers = [], Counter(), set()
+
+    def tier_of(a):
+        if not a.startswith("special_bonus"):
+            return None
+        if a in talent_levels:
+            return talent_levels[a]
+        g = gate.get((a, 1), 99)  # талант не из справочника — уровень по самому раннему очку
+        return 1 if g < 14 else 2 if g < 17 else 3 if g < 18 else 4
+
+    def ok(a, idx):
+        if have[a] >= cap[a] or gate.get((a, have[a] + 1), 99) > idx:
+            return False
+        tier = tier_of(a)
+        return not (tier and tier in tiers)
+
+    for idx in range(length):
+        pool = [s for s in seqs if len(s) > idx and s[:idx] == out]
         if len(pool) < 3:
-            pool = [s for s in seqs if len(s) > lvl]
+            pool = [s for s in seqs if len(s) > idx]
         if not pool:
             break
-        nxt, _ = Counter(s[lvl] for s in pool).most_common(1)[0]
-        out.append(nxt)
+        cand = [a for a, _ in Counter(s[idx] for s in pool).most_common() if ok(a, idx)]
+        if not cand:  # берём то, что чаще всего качают в этот момент вообще
+            cand = [a for a, _ in Counter(x for s in seqs for x in s[max(0, idx - 1):idx + 2]).most_common() if ok(a, idx)]
+        if not cand:
+            cand = [a for a in cap if ok(a, idx)]
+            cand.sort(key=lambda a: -sum(s.count(a) for s in seqs))
+        if not cand:
+            break
+        a = cand[0]
+        out.append(a)
+        have[a] += 1
+        if tier_of(a):
+            tiers.add(tier_of(a))
     exact = sum(1 for s in seqs if s[:min(10, len(out))] == out[:10])
     return out, exact
 
@@ -179,6 +225,7 @@ def greedy_sequence(seqs, length):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=30)
+    ap.add_argument("--heroes", type=str, default="", help="только эти id героев через запятую (для отладки)")
     args = ap.parse_args()
 
     print("Константы…")
@@ -187,6 +234,10 @@ def main():
     abilities = get("constants/abilities")
     ability_ids = get("constants/ability_ids")
     hero_abilities = get("constants/hero_abilities")
+    item_ids = get("constants/item_ids")
+    only = {int(x) for x in args.heroes.split(",") if x}
+    use_stratz = bool(os.environ.get("STRATZ_TOKEN"))
+    print("STRATZ:", "включён" if use_stratz else "нет токена, только про-матчи")
     patches = get("constants/patch")
     patch_name = patches[-1]["name"] if patches else ""
 
@@ -244,6 +295,8 @@ def main():
 
     for hid_s, h in sorted(heroes.items(), key=lambda kv: kv[1]["localized_name"]):
         hid = int(hid_s)
+        if only and hid not in only:
+            continue
         hname = h["name"]
         habil = hero_abilities.get(hname, {})
         talent_levels = {t["name"]: t["level"] for t in habil.get("talents", [])}
@@ -271,9 +324,11 @@ def main():
                             talent_picks[lvl][nm] += 1
                         seq.append(nm)
                     elif nm in abilities:
+                        if nm.endswith("_break") and nm[:-6] in abilities:
+                            nm = nm[:-6]  # в части матчей очко в Tether пишется как Break Tether
                         seq.append(nm)
                 seqs.append(seq)
-            skill_seq, skill_exact = greedy_sequence(seqs, 18)
+            skill_seq, skill_exact = greedy_sequence(seqs, 19, talent_levels)
             used_abilities.update(s for s in skill_seq if not s.startswith("special_bonus"))
             talents = []
             for lvl in (1, 2, 3, 4):
@@ -362,6 +417,21 @@ def main():
                 "talents": talents, "start": start_items, "core": core,
                 "situational": situational, "pro": pro_games,
             }
+        if use_stratz:
+            imm = stratz.fetch_hero(hid, item_ids, ability_ids, talent_levels, is_build_item)
+            time.sleep(0.3)
+            for pos, st in imm.items():
+                used_items.update(i["key"] for i in st["core"] + st["situational"] + st["start"])
+                used_abilities.update(x["name"] for x in st["maxOrder"])
+                if pos not in positions:
+                    positions[pos] = {"games": 0, "wr": None, "gpm": None, "skills": [], "skillsExact": 0,
+                                      "talents": [{"level": [10, 15, 20, 25][l - 1], "sample": 0,
+                                                   "options": [{"name": t, "pick": 0} for t, tl in talent_levels.items() if tl == l]}
+                                                  for l in (1, 2, 3, 4)],
+                                      "start": [], "core": [], "situational": [], "pro": []}
+                positions[pos]["imm"] = st
+            if imm:
+                print(f"  {h['localized_name']}: Immortal {', '.join(f'pos{p}={imm[p]["games"]}' for p in sorted(imm))}")
         if positions:
             (OUT / "heroes" / f"{hid}.json").write_text(
                 json.dumps({"id": hid, "positions": positions}, ensure_ascii=False, separators=(",", ":")))
@@ -370,6 +440,7 @@ def main():
             "img": CDN + h["img"].split("?")[0], "attr": h.get("primary_attr"),
             "roles": h.get("roles", []),
             "positions": {p: positions[p]["games"] for p in positions},
+            "imm": {p: positions[p]["imm"]["games"] for p in positions if "imm" in positions[p]},
         })
 
     # словари для отображения
@@ -391,7 +462,7 @@ def main():
 
     meta = {
         "updated": int(time.time()), "days": days, "patch": patch_name,
-        "matches": len(matches),
+        "matches": len(matches), "stratz": use_stratz,
         "thresholds": {"stompAdv": STOMP_ADV, "stompMinute": STOMP_MINUTE,
                        "stompGpm": STOMP_GPM_RATIO, "hardAdv": HARD_ADV},
     }

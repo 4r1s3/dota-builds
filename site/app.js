@@ -2,7 +2,10 @@
 const $ = s => document.querySelector(s);
 const POS = {1: "Pos 1 · керри", 2: "Pos 2 · мид", 3: "Pos 3 · оффлейн", 4: "Pos 4 · роумер", 5: "Pos 5 · саппорт"};
 const MIN_SAMPLE = 8;
+// номер очка → уровень героя (на 17, 19, 21–24 очков навыков нет)
+const PT_LEVEL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 25];
 let DB = null;
+let SRC = (() => { try { return localStorage.getItem("src") || "imm"; } catch { return "imm"; } })();
 const cache = {};
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -55,7 +58,7 @@ async function loadHero(id) {
   return cache[id];
 }
 function bestPos(h) {
-  const e = Object.entries(h.positions);
+  const e = Object.entries(SRC === "imm" && h.imm && Object.keys(h.imm).length ? h.imm : h.positions);
   return e.length ? +e.sort((a, b) => b[1] - a[1])[0][0] : 1;
 }
 function itemTile(key, extra = "", cls = "it", tip = "") {
@@ -68,19 +71,39 @@ async function showHero(id, pos) {
   if (!hero) return;
   const data = await loadHero(id);
   pos = pos && data.positions[pos] ? pos : bestPos(hero);
-  const d = data.positions[pos];
+  const raw = data.positions[pos];
+  const useImm = SRC === "imm" && raw && raw.imm;
+  const d = raw && (useImm ? {
+    ...raw, games: raw.imm.games, wr: raw.imm.wr, gpm: raw.gpm,
+    start: raw.imm.start.length ? raw.imm.start : raw.start,
+    core: raw.imm.core.length ? raw.imm.core : raw.core,
+    situational: raw.imm.core.length ? raw.imm.situational : raw.situational,
+    itemsFromPro: !raw.imm.core.length,
+    talents: raw.talents.map((t, i) => {
+      const it = raw.imm.talents[i + 1] || {};
+      if (Object.keys(it).length < Math.min(2, t.options.length)) return {...t, fromPro: true};
+      return {...t, sample: 1,
+        options: t.options.map(o => ({...o, pick: (it[o.name] || {}).pick || 0, wr: (it[o.name] || {}).wr}))};
+    }),
+  } : raw);
   history.replaceState(null, "", `#h${id}-${pos}`);
   $("#grid").hidden = true;
   const card = $("#card");
   card.hidden = false;
 
   const tabs = [1, 2, 3, 4, 5].map(p => {
-    const n = hero.positions[p];
-    return `<button class="tab ${p === pos ? "on" : ""} ${n ? "" : "empty"}" ${n ? `data-pos="${p}"` : "disabled"}>${POS[p]} <small>${n || 0}</small></button>`;
+    const n = hero.positions[p] || 0, im = (hero.imm || {})[p] || 0;
+    const has = n || im;
+    const cnt = SRC === "imm" && hero.imm ? (im ? `${(im / 1000).toFixed(1)}k` : "0") : n;
+    return `<button class="tab ${p === pos ? "on" : ""} ${has ? "" : "empty"}" ${has ? `data-pos="${p}"` : "disabled"}>${POS[p]} <small>${cnt}</small></button>`;
   }).join("");
+  const anyImm = hero.imm && Object.keys(hero.imm).length;
+  const srcSw = anyImm ? `<div class="src">Статистика:
+    <button class="sbtn ${SRC === "imm" ? "on" : ""}" data-src="imm">Divine/Immortal пабы</button>
+    <button class="sbtn ${SRC === "pro" ? "on" : ""}" data-src="pro">Про-матчи</button></div>` : "";
 
   if (!d) {
-    card.innerHTML = head(hero, null) + `<div class="tabs">${tabs}</div><div class="empty-msg">Нет про-матчей на этом герое за последние ${DB.meta.days} дн.</div>`;
+    card.innerHTML = head(hero, null) + srcSw + `<div class="tabs">${tabs}</div><div class="empty-msg">Нет про-матчей на этом герое за последние ${DB.meta.days} дн.</div>`;
     return bind(hero);
   }
 
@@ -88,18 +111,18 @@ async function showHero(id, pos) {
     if (s.startsWith("special_bonus")) {
       const row = d.talents.find(t => t.options.some(o => o.name === s));
       const right = row && row.options[0].name === s;
-      return `<div class="sk" data-tip="Талант ${row ? row.level : ""}: ${esc(talentName(s))}"><div class="tl">${right ? "▶" : "◀"}<small>${row ? row.level : ""}</small></div>${i + 1}</div>`;
+      return `<div class="sk" data-tip="Талант ${row ? row.level : ""}: ${esc(talentName(s))}"><div class="tl">${right ? "▶" : "◀"}<small>${row ? row.level : ""}</small></div>${PT_LEVEL[i]}</div>`;
     }
     const a = DB.abilities[s] || {name: s};
-    return `<div class="sk" data-tip="${esc(a.name)}">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${i + 1}</div>`;
+    return `<div class="sk" data-tip="${esc(a.name)} — ${PT_LEVEL[i]} уровень">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${PT_LEVEL[i]}</div>`;
   }).join("");
 
   const talents = [...d.talents].reverse().map(t => {
     const [R, L] = t.options; // в игре первый талант уровня — справа
     const opt = o => !o ? "<div></div>" : `<div class="topt ${t.sample && o.pick >= .5 ? "pick" : ""}">
-      <span class="pc">${t.sample ? pct(o.pick) : "–"}</span>${esc(talentName(o.name))}
+      <span class="pc" ${o.wr != null ? `data-tip="винрейт ${pct(o.wr)}"` : ""}>${t.sample ? pct(o.pick) : "–"}</span>${esc(talentName(o.name))}
       <div class="bar" style="width:${o.pick * 100}%"></div></div>`;
-    return `<div class="trow">${opt(L)}<div class="lv">${t.level}</div>${opt(R)}</div>`;
+    return `<div class="trow">${opt(L)}<div class="lv" ${t.fromPro ? 'data-tip="По этому уровню у STRATZ нет полных данных — показаны про-матчи"' : ""}>${t.level}${t.fromPro ? "*" : ""}</div>${opt(R)}</div>`;
   }).join("");
 
   const nm = key => esc((DB.items[key] || {}).name || key);
@@ -131,25 +154,36 @@ async function showHero(id, pos) {
     </div><div class="gitems">${its}</div></div>`;
   }).join("");
 
-  card.innerHTML = head(hero, d) + `<div class="tabs">${tabs}</div>
-    ${d.games < MIN_SAMPLE ? `<div class="warn">Мало про-игр на этой позиции (${d.games}). Смотри на конкретные матчи ниже, статистика может быть случайной.</div>` : ""}
-    <h2>Прокачка скиллов</h2><div class="skills">${skills}</div>
+  const maxOrder = useImm && raw.imm.maxOrder.length ? `<h2>Что качать в первую очередь (Immortal)</h2><div class="maxo">${raw.imm.maxOrder.map((m, i) => {
+      const a = DB.abilities[m.name] || {name: m.name};
+      return (i ? '<span class="arrow">›</span>' : "") + `<div class="sk" data-tip="${esc(a.name)} — вкачивают до максимума ~ к ${m.level} уровню">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${esc(a.name)}<br><b>макс к ${m.level} ур.</b></div>`;
+    }).join("")}</div>` : "";
+  card.innerHTML = head(hero, d, useImm) + srcSw + `<div class="tabs">${tabs}</div>
+    ${!useImm && d.games < MIN_SAMPLE ? `<div class="warn">Мало про-игр на этой позиции (${d.games}). Смотри на конкретные матчи ниже, статистика может быть случайной.</div>` : ""}
+    ${maxOrder}
+    <h2>Прокачка по уровням${useImm ? " (по про-игрокам)" : ""}</h2><div class="skills">${skills || '<span class="stats">Нет про-игр на этой позиции</span>'}</div>
     <h2>Таланты</h2><div class="talents">${talents}</div>
     <h2>Старт</h2><div class="items">${start || '<span class="stats">—</span>'}</div>
-    <h2>Основной билд — по порядку покупки</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
-    <h2>Ситуативные предметы — по популярности</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
+    <h2>Основной билд — по порядку покупки${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
+    <h2>Ситуативные предметы — по популярности${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
     <h2>Про-игры</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
     <div class="pro">${games}</div>`;
   bind(hero);
   window.scrollTo(0, 0);
 }
-function head(hero, d) {
+function head(hero, d, imm) {
   return `<div class="head"><button class="back">← Герои</button><img src="${hero.img}" alt="">
-    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats"><b>${d.games}</b> про-игр · винрейт <b>${pct(d.wr)}</b> · GPM <b>${d.gpm ?? "?"}</b></div>` : ""}</div></div>`;
+    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats"><b>${d.games.toLocaleString("ru-RU")}</b> ${imm ? "игр Divine/Immortal" : "про-игр"} · винрейт <b>${pct(d.wr)}</b>${!imm && d.gpm ? ` · GPM <b>${d.gpm}</b>` : ""}</div>` : ""}</div></div>`;
 }
 function bind(hero) {
   $("#card").querySelectorAll(".tab[data-pos]").forEach(b => b.onclick = () => showHero(hero.id, +b.dataset.pos));
+  $("#card").querySelectorAll(".sbtn").forEach(b => b.onclick = () => {
+    SRC = b.dataset.src;
+    try { localStorage.setItem("src", SRC); } catch {}
+    const m = location.hash.match(/^#h(\d+)-(\d)$/);
+    showHero(hero.id, m ? +m[2] : null);
+  });
   $("#card .back").onclick = () => { location.hash = ""; route(); $("#q").focus(); $("#q").select(); };
 }
 
@@ -194,7 +228,7 @@ document.addEventListener("click", e => {
 (async () => {
   DB = await (await fetch("data/index.json")).json();
   const m = DB.meta;
-  $("#meta").innerHTML = `Патч ${esc(m.patch)} · ${m.matches} про-матчей за ${m.days} дн.<br>обновлено ${new Date(m.updated * 1000).toLocaleString("ru-RU")}`;
+  $("#meta").innerHTML = `Патч ${esc(m.patch)} · ${m.matches} про-матчей за ${m.days} дн.${m.stratz ? " + Immortal (STRATZ)" : ""}<br>обновлено ${new Date(m.updated * 1000).toLocaleString("ru-RU")}`;
   $("#q").addEventListener("input", () => { if (!$("#grid").hidden) renderGrid(); else { location.hash = ""; route(); } });
   $("#q").addEventListener("keydown", e => {
     if (e.key === "Enter") {
