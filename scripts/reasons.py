@@ -160,6 +160,10 @@ def explain(item, buy_time, team_adv, enemies, enemy_buys, heroes, lifts, item_n
         if hit:
             hit.sort(key=lambda x: -x[0])
             reasons.append(f"{why} — " + "; ".join(h for _, h in hit[:2]))
+    if item in ("gem", "dust", "ward_sentry") and not reasons:
+        return "скорее для девардинга и контроля обзора: невидимых героев у врага нет"
+    if item == "gem" and reasons:
+        reasons[0] += " (заодно девардинг)"
     if not reasons and item in components and item not in RULES and duration and buy_time >= duration - 480:
         return "компонент: скорее всего игра закончилась до сборки большого предмета"
     if not reasons and lifts:

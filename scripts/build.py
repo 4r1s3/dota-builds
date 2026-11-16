@@ -363,10 +363,12 @@ def main():
             # --- предметы
             start_counter = Counter()
             first_buy = []
+            start_sets = defaultdict(list)
             for g in games:
                 log = pg_array(g["purchase_log"])
-                bought_later = []
                 start = Counter(e["key"] for e in log if e["time"] <= 0)
+                if start:
+                    start_sets[tuple(sorted(start.items()))].append(g)
                 for k, c in start.items():
                     start_counter[(k, c)] += 1
                 seen = {}
@@ -386,6 +388,22 @@ def main():
                     best[k] = (c, cnt)
             for k, (c, cnt) in sorted(best.items(), key=lambda kv: -kv[1][1]):
                 start_items.append({"key": k, "count": c, "share": round(cnt / n, 2)})
+            # готовые варианты стартового закупа (целые наборы, как их брали в играх)
+            start_variants = []
+            for combo, gs in sorted(start_sets.items(), key=lambda kv: -len(kv[1]))[:4]:
+                if len(gs) < 2 and start_variants:
+                    break
+                won = sum(1 for g in gs if (g["player_slot"] < 128) == g["radiant_win"])
+                its = sorted(({"key": k, "count": c} for k, c in combo),
+                             key=lambda i: -(items.get(i["key"], {}).get("cost") or 0) * i["count"])
+                players = [p for p, _ in Counter(g["pro_name"] for g in gs if g["pro_name"]).most_common(3)]
+                start_variants.append({
+                    "items": its, "games": len(gs), "share": round(len(gs) / n, 2),
+                    "wr": round(won / len(gs), 2),
+                    "cost": sum((items.get(i["key"], {}).get("cost") or 0) * i["count"] for i in its),
+                    "players": players,
+                })
+                used_items.update(i["key"] for i in its)
             freq = Counter(k for fb in first_buy for k in fb)
             times = defaultdict(list)
             for fb in first_buy:
@@ -442,7 +460,7 @@ def main():
             positions[pos] = {
                 "games": n, "wr": round(wins / n, 2), "gpm": med_gpm,
                 "skills": skill_seq, "skillsExact": skill_exact,
-                "talents": talents, "start": start_items, "core": core,
+                "talents": talents, "start": start_items, "startSets": start_variants, "core": core,
                 "situational": situational, "pro": pro_games,
             }
         if use_stratz:

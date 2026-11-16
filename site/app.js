@@ -131,6 +131,18 @@ async function showHero(id, pos) {
   const start = d.start.map(s => `<div class="ic" data-tip="${nm(s.key)} — берут в ${pct(s.share)} игр">
       <div class="pic">${icon(s.key)}${s.count > 1 ? `<span class="cnt">×${s.count}</span>` : ""}</div>
       <div class="nm">${nm(s.key)}</div>${bar(s.share)}<div class="sub">${pct(s.share)} игр</div></div>`).join("");
+  const setCard = (title, its, meta, players, cls = "") => `<div class="variant ${cls}">
+      <div class="vt">${title}</div>
+      <div class="vitems">${its.map(i => `<div class="vi" data-tip="${nm(i.key)}${i.count > 1 ? " ×" + i.count : ""}">${icon(i.key)}${i.count > 1 ? `<span class="cnt">×${i.count}</span>` : ""}<div class="vn">${nm(i.key)}</div></div>`).join("")}</div>
+      <div class="vm">${meta}</div>${players && players.length ? `<div class="vp">Брали: ${players.map(esc).join(", ")}</div>` : ""}</div>`;
+  const cost = its => its.reduce((s, i) => s + ((DB.items[i.key] || {}).cost || 0) * i.count, 0);
+  const sets = (raw.startSets || []);
+  let variants = sets.map((v, i) => setCard(`Вариант ${i + 1}`, v.items,
+    `<b>${v.games}</b> из ${raw.games} про-игр (${pct(v.share)}) · винрейт <b>${pct(v.wr)}</b> · ≈${v.cost} золота`, v.players)).join("");
+  if (useImm && raw.imm.startSet && raw.imm.startSet.length) {
+    variants = setCard("Типичный набор Divine/Immortal", raw.imm.startSet,
+      `собран из предметов, которые берут больше чем в половине из ${raw.imm.games.toLocaleString("ru-RU")} игр · ≈${cost(raw.imm.startSet)} золота`, null, "imm") + variants;
+  }
   const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт с ним ${pct(c.wr)}">
       <div class="pic">${icon(c.key)}<span class="step">${i + 1}</span></div>
       <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр</div></div>`).join("");
@@ -164,7 +176,10 @@ async function showHero(id, pos) {
     ${maxOrder}
     <h2>Прокачка по уровням${useImm ? " (по про-игрокам)" : ""}</h2><div class="skills">${skills || '<span class="stats">Нет про-игр на этой позиции</span>'}</div>
     <h2>Таланты</h2><div class="talents">${talents}</div>
-    <h2>Старт</h2><div class="items">${start || '<span class="stats">—</span>'}</div>
+    <h2>Стартовый закуп — готовые варианты</h2>
+    <div class="variants">${variants || '<span class="stats">Нет данных</span>'}</div>
+    <div class="subh">Как часто берут каждый предмет на старте${useImm && raw.imm.start.length ? " (Divine/Immortal)" : ""}</div>
+    <div class="items">${start || '<span class="stats">—</span>'}</div>
     <h2>Основной билд — по порядку покупки${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
     <h2>Ситуативные предметы — по популярности${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
     <h2>Про-игры</h2>

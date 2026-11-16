@@ -122,6 +122,13 @@ def fetch_hero(hid, item_ids, ability_ids, talent_level, is_build_item):
                 if key not in best or inst > best[key]["count"]:
                     best[key] = {"key": key, "count": inst, "share": round(min(share, 1), 2)}
         start = sorted(best.values(), key=lambda s: -s["share"])
+        # «типичный набор»: всё, что берут хотя бы в половине игр, в самом частом количестве
+        typical = {}
+        for r in hs.get(f"s{n}") or []:
+            key = item_ids.get(str(r["itemId"]))
+            if key and not r.get("wasGiven") and r["matchCount"] / games >= 0.5:
+                typical[key] = max(typical.get(key, 0), r["instance"] or 1)
+        start_set = [{"key": k, "count": c} for k, c in typical.items()]
         # таланты
         tal = defaultdict(dict)
         for r in hs.get(f"t{n}") or []:
@@ -143,5 +150,5 @@ def fetch_hero(hid, item_ids, ability_ids, talent_level, is_build_item):
         max_order = sorted(({"name": k, "level": wmedian(v)} for k, v in mx.items() if wmedian(v)),
                            key=lambda x: x["level"])
         out[n] = {"games": games, "wr": round(wins / games, 2), "core": core,
-                  "situational": situational, "start": start, "talents": talents, "maxOrder": max_order}
+                  "situational": situational, "start": start, "startSet": start_set, "talents": talents, "maxOrder": max_order}
     return out
