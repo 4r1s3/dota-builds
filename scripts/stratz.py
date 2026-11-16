@@ -4,6 +4,7 @@ import os
 import statistics
 import sys
 import time
+import urllib.error
 import urllib.request
 from collections import defaultdict
 
@@ -28,7 +29,7 @@ PART = """
 FULL_QUERY = QUERY % {"b": BRACKET, "parts": "".join(PART % {"n": n, "b": BRACKET} for n in range(1, 6))}
 
 
-def gql(query, variables, token, tries=4):
+def gql(query, variables, token, tries=5):
     body = json.dumps({"query": query, "variables": variables}).encode()
     for i in range(tries):
         req = urllib.request.Request(URL, data=body, headers={
@@ -40,9 +41,13 @@ def gql(query, variables, token, tries=4):
             if d.get("errors"):
                 raise RuntimeError(d["errors"][0].get("message"))
             return d["data"]
+        except urllib.error.HTTPError as e:
+            msg = e.read()[:160].decode("utf-8", "replace")
+            print(f"  ! STRATZ: {e.code} {msg} (попытка {i + 1})", file=sys.stderr)
+            time.sleep(30 * (i + 1) if e.code in (403, 429) else 5)
         except Exception as e:  # noqa: BLE001
             print(f"  ! STRATZ: {e} (попытка {i + 1})", file=sys.stderr)
-            time.sleep(4 * (i + 1))
+            time.sleep(5 * (i + 1))
     return None
 
 

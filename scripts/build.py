@@ -419,7 +419,7 @@ def main():
             }
         if use_stratz:
             imm = stratz.fetch_hero(hid, item_ids, ability_ids, talent_levels, is_build_item)
-            time.sleep(0.3)
+            time.sleep(1.2)
             for pos, st in imm.items():
                 used_items.update(i["key"] for i in st["core"] + st["situational"] + st["start"])
                 used_abilities.update(x["name"] for x in st["maxOrder"])
