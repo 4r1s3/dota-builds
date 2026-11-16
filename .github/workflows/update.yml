@@ -29,6 +29,8 @@ jobs:
           OPENDOTA_API_KEY: ${{ secrets.OPENDOTA_API_KEY }}
           STRATZ_TOKEN: ${{ secrets.STRATZ_TOKEN }}
         run: python scripts/build.py --days 30
+      - name: Сбросить кеш браузера для новой версии
+        run: sed -i "s/app.js\"/app.js?v=$GITHUB_RUN_ID\"/; s/style.css\"/style.css?v=$GITHUB_RUN_ID\"/" site/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

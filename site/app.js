@@ -52,7 +52,7 @@ function renderGrid() {
 // ---------- карточка героя
 async function loadHero(id) {
   if (!cache[id]) {
-    const r = await fetch(`data/heroes/${id}.json`);
+    const r = await fetch(`data/heroes/${id}.json?v=${DB.meta.updated}`);
     cache[id] = r.ok ? await r.json() : {id, positions: {}};
   }
   return cache[id];
@@ -226,7 +226,7 @@ document.addEventListener("click", e => {
 
 // ---------- старт
 (async () => {
-  DB = await (await fetch("data/index.json")).json();
+  DB = await (await fetch("data/index.json", {cache: "no-cache"})).json();
   const m = DB.meta;
   $("#meta").innerHTML = `Патч ${esc(m.patch)} · ${m.matches} про-матчей за ${m.days} дн.${m.stratz ? " + Immortal (STRATZ)" : ""}<br>обновлено ${new Date(m.updated * 1000).toLocaleString("ru-RU")}`;
   $("#q").addEventListener("input", () => { if (!$("#grid").hidden) renderGrid(); else { location.hash = ""; route(); } });
