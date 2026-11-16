@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pubs  # noqa: E402
 import reasons  # noqa: E402
 import stratz  # noqa: E402
 
@@ -37,6 +38,7 @@ CONSUMABLES = {
 STANDALONE_OK = {"blink", "boots", "magic_stick", "aghanims_shard", "infused_raindrop",
                  "orb_of_venom", "quelling_blade", "wind_lace", "javelin", "gem"}
 
+PUB_MIN = 8            # если про-игр на позиции меньше — добираем Immortal-пабы
 STOMP_ADV = 10000      # перевес команды по золоту, после которого игра «шла очень хорошо»
 STOMP_MINUTE = 25      # ...если он набран к этой минуте
 STOMP_GPM_RATIO = 1.25 # или GPM игрока выше медианы героя на позиции на 25%
@@ -99,8 +101,10 @@ def fetch_rows(days):
 
 def pg_array(text):
     """'{1,2,3}' -> [1,2,3]; поддерживает массив JSON-строк purchase_log."""
-    if not text or text in ("{}", "NULL"):
+    if not text or text in ("{}", "NULL", "[]"):
         return []
+    if text.startswith("["):
+        return json.loads(text)
     if text.startswith("{\"{") or text.startswith("{\"\\"):
         # массив json-объектов в синтаксисе postgres
         inner = text[1:-1]
@@ -295,6 +299,34 @@ def main():
                 del seen[k]
         return seen
 
+    # Immortal-статистика заранее: по ней видно, на каких позициях героя играют
+    imm_all, want = {}, set()
+    if use_stratz:
+        for hid_s, h in heroes.items():
+            hid = int(hid_s)
+            if only and hid not in only:
+                continue
+            tl = {t["name"]: t["level"] for t in hero_abilities.get(h["name"], {}).get("talents", [])}
+            imm_all[hid] = stratz.fetch_hero(hid, item_ids, ability_ids, tl, is_build_item)
+            time.sleep(1.2)
+        pro_cnt = Counter((r["hero_id"], r.get("pos")) for r in rows if r.get("pos"))
+        wanted = []
+        for hid, imm in imm_all.items():
+            tot = sum(v["games"] for v in imm.values()) or 1
+            for pos, v in imm.items():
+                if v["games"] / tot >= 0.1 and pro_cnt[(hid, pos)] < PUB_MIN:
+                    wanted.append((hid, pos))
+        want = set(wanted)
+        try:
+            pub_rows = pubs.fetch(wanted, item_ids)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! пабы не загрузились: {e}", file=sys.stderr)
+            pub_rows = []
+        pub_rows = [r for r in pub_rows if r["pos"] and (r.get("rank") is None or r["rank"] >= pubs.MIN_RANK)]
+        for r in pub_rows:
+            matches[r["match_id"]].append(r)
+        rows.extend(pub_rows)
+
     fb_all = {}
     for r in rows:
         if r["purchase_log"]:
@@ -305,7 +337,9 @@ def main():
 
     groups = defaultdict(list)
     for r in rows:
-        if r.get("pos") and r["purchase_log"] and r["abilities"]:
+        if r.get("pos") and r["purchase_log"] and r["abilities"] not in (None, "", "{}"):
+            if r.get("src") == "pub" and (r["hero_id"], r["pos"]) not in want:
+                continue
             groups[(r["hero_id"], r["pos"])].append(r)
 
     hero_index = []
@@ -447,6 +481,7 @@ def main():
                 used_items.update(fb)
                 pro_games.append({
                     "match": g["match_id"], "player": g["pro_name"] or "аноним",
+                    "src": g.get("src", "pro"), "rank": g.get("rank"),
                     "league": g["league"], "date": g["start_time"], "dur": g["duration"],
                     "win": radiant == g["radiant_win"], "k": g["kills"], "d": g["deaths"],
                     "a": g["assists"], "gpm": g["gold_per_min"],
@@ -455,17 +490,18 @@ def main():
                     "flag": "stomp" if stomp else ("hard" if hard else None),
                     "items": build,
                 })
-            pro_games = [p for p in pro_games if p["player"] != "аноним"][:10] or pro_games[:10]
+            named = [p for p in pro_games if p["player"] != "аноним"] or pro_games
+            pro_games = ([p for p in named if p["src"] == "pro"] + [p for p in named if p["src"] == "pub"])[:12]
 
             positions[pos] = {
                 "games": n, "wr": round(wins / n, 2), "gpm": med_gpm,
+                "pubGames": sum(1 for g in games if g.get("src") == "pub"),
                 "skills": skill_seq, "skillsExact": skill_exact,
                 "talents": talents, "start": start_items, "startSets": start_variants, "core": core,
                 "situational": situational, "pro": pro_games,
             }
         if use_stratz:
-            imm = stratz.fetch_hero(hid, item_ids, ability_ids, talent_levels, is_build_item)
-            time.sleep(1.2)
+            imm = imm_all.get(hid, {})
             for pos, st in imm.items():
                 used_items.update(i["key"] for i in st["core"] + st["situational"] + st["start"])
                 used_abilities.update(x["name"] for x in st["maxOrder"])

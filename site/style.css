@@ -131,3 +131,5 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)
 .ph small{font-weight:400;color:var(--dim)}
 .gi .gt{display:inline-block;margin-top:2px;font-size:10px;color:var(--text);background:var(--panel2);border-radius:3px;padding:0 4px;font-variant-numeric:tabular-nums}
 .gi.odd .gt{background:rgba(230,162,60,.2);color:var(--warn)}
+
+.pub{font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(216,180,90,.15);color:var(--gold);border:1px solid rgba(216,180,90,.45)}

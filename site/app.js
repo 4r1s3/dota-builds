@@ -164,7 +164,7 @@ async function showHero(id, pos) {
     const whys = g.items.filter(i => i.odd && i.why).map(i => `<div class="why"><b>${esc((DB.items[i.key] || {}).name || i.key)}</b> <span class="t">на ${mmss(i.time)}</span> — ${esc(i.why)}</div>`).join("");
     const chip = (label, val, tip) => `<span class="chip" ${tip ? `data-tip="${tip}"` : ""}>${label ? `<i>${label}</i>` : ""}${val}</span>`;
     return `<div class="game"><div class="ghead">
-      <span class="pl">${esc(g.player)}</span>
+      <span class="pl">${esc(g.player)}</span>${g.src === "pub" ? `<span class="pub" data-tip="Рейтинговая игра Immortal${g.rank ? ", ранг " + g.rank : ""} — добавлена, потому что про-игр на этой позиции мало">паб Immortal</span>` : ""}
       <span class="res ${g.win ? "w" : "l"}">${g.win ? "Победа" : "Поражение"}</span>
       ${badge}
       <span class="links"><a href="https://www.opendota.com/matches/${g.match}" target="_blank" rel="noopener">OpenDota</a>
@@ -184,7 +184,7 @@ async function showHero(id, pos) {
       return (i ? '<span class="arrow">›</span>' : "") + `<div class="sk" data-tip="${esc(a.name)} — вкачивают до максимума ~ к ${m.level} уровню">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${esc(a.name)}<br><b>макс к ${m.level} ур.</b></div>`;
     }).join("")}</div>` : "";
   card.innerHTML = head(hero, d, useImm) + srcSw + `<div class="tabs">${tabs}</div>
-    ${!useImm && d.games < MIN_SAMPLE ? `<div class="warn">Мало про-игр на этой позиции (${d.games}). Смотри на конкретные матчи ниже, статистика может быть случайной.</div>` : ""}
+    ${!useImm && d.games - (d.pubGames || 0) < MIN_SAMPLE ? `<div class="warn">Мало про-игр на этой позиции (${d.games - (d.pubGames || 0)})${d.pubGames ? `, поэтому добавлены ${d.pubGames} игр из Immortal-пабов` : ""}. Смотри на конкретные матчи ниже, статистика может быть случайной.</div>` : ""}
     ${maxOrder}
     <h2>Прокачка по уровням${useImm ? " (по про-игрокам)" : ""}</h2><div class="skills">${skills || '<span class="stats">Нет про-игр на этой позиции</span>'}</div>
     <h2>Таланты</h2><div class="talents">${talents}</div>
@@ -194,7 +194,7 @@ async function showHero(id, pos) {
     <div class="items">${start || '<span class="stats">—</span>'}</div>
     <h2>Основной билд — по порядку покупки${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
     <h2>Ситуативные предметы — по популярности${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
-    <h2>Про-игры</h2>
+    <h2>Про-игры${d.pubGames ? " и Immortal-пабы" : ""}</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда, под игрой написано почему · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
     <div class="pro">${games}</div>`;
   bind(hero);
@@ -202,7 +202,7 @@ async function showHero(id, pos) {
 }
 function head(hero, d, imm) {
   return `<div class="head"><button class="back">← Герои</button><img src="${hero.img}" alt="">
-    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats"><b>${d.games.toLocaleString("ru-RU")}</b> ${imm ? "игр Divine/Immortal" : "про-игр"} · винрейт <b>${pct(d.wr)}</b>${!imm && d.gpm ? ` · GPM <b>${d.gpm}</b>` : ""}</div>` : ""}</div></div>`;
+    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats"><b>${d.games.toLocaleString("ru-RU")}</b> ${imm ? "игр Divine/Immortal" : d.pubGames ? `игр (${d.games - d.pubGames} про + ${d.pubGames} Immortal-пабов)` : "про-игр"} · винрейт <b>${pct(d.wr)}</b>${!imm && d.gpm ? ` · GPM <b>${d.gpm}</b>` : ""}</div>` : ""}</div></div>`;
 }
 function bind(hero) {
   $("#card").querySelectorAll(".tab[data-pos]").forEach(b => b.onclick = () => showHero(hero.id, +b.dataset.pos));
