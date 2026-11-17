@@ -2,8 +2,9 @@
 const $ = s => document.querySelector(s);
 const POS = {1: "Pos 1 · керри", 2: "Pos 2 · мид", 3: "Pos 3 · оффлейн", 4: "Pos 4 · роумер", 5: "Pos 5 · саппорт"};
 const MIN_SAMPLE = 8;
-// номер очка → уровень героя (на 17, 19, 21–24 очков навыков нет)
-const PT_LEVEL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 25];
+
+// номер очка → уровень героя: на 10-м уровне два очка (способность + талант), на 16, 17, 19, 21–24 очков нет
+const PT_LEVEL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 18, 20, 25];
 let DB = null;
 const HERO_BY_ID = {};
 let SRC = (() => { try { return localStorage.getItem("src") || "imm"; } catch { return "imm"; } })();
@@ -131,19 +132,20 @@ async function showHero(id, pos) {
   d.talents.forEach(t => {
     if (!chosen[t.level] && t.sample) chosen[t.level] = [...t.options].sort((a, b) => b.pick - a.pick)[0].name;
   });
-  const ABIL_LV = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 16, 18];
+  // уровни, на которых качают способности (10-й даёт ещё и талант, 15/20/25 — только талант)
+  const ABIL_LV = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18];
   const cells = [];
   const marker = lv => {
     const s = chosen[lv];
     if (!s) return;
     const row = d.talents.find(t => t.level === lv);
     const right = row && row.options[0].name === s;
-    cells.push(`<div class="tmark" data-tip="Талант ${lv}: ${esc(talentName(s))}">${right ? "▶" : "◀"}<small>${lv}</small></div>`);
+    cells.push(`<div class="tmark" data-tip="Талант ${lv}: ${esc(talentName(s))}${lv === 10 ? "\nНа 10 уровне дают 2 очка — способность и талант сразу" : ""}">${right ? "▶" : "◀"}<small>${lv}</small></div>`);
   };
   abil.slice(0, ABIL_LV.length).forEach((s, i) => {
     const lv = ABIL_LV[i];
     if (lv === 11) marker(10);
-    if (lv === 16) marker(15);
+    if (lv === 18) marker(15);
     const a = DB.abilities[s] || {name: s};
     cells.push(`<div class="sk" data-tip="${esc(a.name)} — ${lv} уровень">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${lv}</div>`);
   });
