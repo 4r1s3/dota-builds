@@ -105,6 +105,15 @@ RULES = {
     "pavise": (["rightclick"], [], "щит от физ. урона"),
     "ward_sentry": (["invis"], ["invis"], "видеть невидимок"),
 }
+# предметы, которые берут не «против кого-то», а ради самой механики
+GENERAL = {
+    "blink": "мобильность: добраться до врага, инициировать и сломать его позиционку",
+    "overwhelming_blink": "мобильность и инициация с уроном по области",
+    "swift_blink": "мобильность и инициация, бонус к ловкости",
+    "arcane_blink": "мобильность и быстрые касты после прыжка",
+    "travel_boots": "мобильность по карте: сплит-пуш и телепорты к драке",
+    "travel_boots_2": "мобильность по карте: сплит-пуш и телепорты к героям",
+}
 GREEDY = {"rapier", "greater_crit", "moon_shard", "ultimate_scepter_2", "hand_of_midas", "bfury",
           "radiance", "travel_boots", "travel_boots_2", "butterfly", "daedalus", "divine_rapier"}
 
@@ -134,7 +143,10 @@ def lift_table(rows_by_match, first_buys):
     return {"item_n": item_n, "pair": pair, "enemy_n": enemy_n, "total": total}
 
 
-def explain(item, buy_time, team_adv, enemies, enemy_buys, heroes, lifts, item_names, components=frozenset(), duration=None):
+def explain(item, buy_time, team_adv, enemies, enemy_buys, heroes, lifts, item_names, components=frozenset(), duration=None,
+            raw_parts=frozenset()):
+    """raw_parts — базовые компоненты без своей активной способности (Hyperstone, Demon Edge...).
+    Только про них имеет смысл писать «игра закончилась до сборки»."""
     """enemies: список hero_id врагов; enemy_buys: {hero_id: {item: time}}; heroes: константы OpenDota."""
     names = {e: heroes[str(e)]["localized_name"] for e in enemies if str(e) in heroes}
     short = {e: heroes[str(e)]["name"].replace("npc_dota_hero_", "") for e in enemies if str(e) in heroes}
@@ -164,7 +176,9 @@ def explain(item, buy_time, team_adv, enemies, enemy_buys, heroes, lifts, item_n
         return "скорее для девардинга и контроля обзора: невидимых героев у врага нет"
     if item == "gem" and reasons:
         reasons[0] += " (заодно девардинг)"
-    if not reasons and item in components and item not in RULES and duration and buy_time >= duration - 480:
+    if not reasons and item in GENERAL:
+        reasons.append(GENERAL[item])
+    if not reasons and item in raw_parts and item not in RULES and duration and buy_time >= duration - 480:
         return "компонент: скорее всего игра закончилась до сборки большого предмета"
     if not reasons and lifts:
         n_item = lifts["item_n"].get(item, 0)

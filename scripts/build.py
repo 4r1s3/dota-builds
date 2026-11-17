@@ -341,6 +341,10 @@ def main():
     lifts = reasons.lift_table(matches, fb_all)
     item_names = {k: v.get("dname", k) for k, v in items.items()}
     components = {c for v in items.values() for c in (v.get("components") or [])}
+    # «чистые» компоненты: входят в другие предметы, сами не собираются и не имеют активной способности
+    raw_parts = {k for k in components if not (items.get(k, {}).get("components"))
+                 and not any(ab.get("type") == "active" for ab in (items.get(k, {}).get("abilities") or []))
+                 and k not in ("boots", "magic_stick", "wind_lace", "orb_of_venom", "blight_stone", "quelling_blade")}
 
     pub_groups = defaultdict(list)
     for r in rows:
@@ -404,7 +408,7 @@ def main():
                 if odd:
                     why = reasons.explain(k, t, team_adv, enemies,
                                           {e: fb_all.get((g["match_id"], e), {}) for e in enemies},
-                                          heroes, lifts, item_names, components, g["duration"])
+                                          heroes, lifts, item_names, components, g["duration"], raw_parts)
                 build.append({"key": k, "time": t, "adv": a, "odd": odd, "why": why})
             used_items.update(fb)
             cards.append({
