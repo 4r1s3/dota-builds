@@ -18,11 +18,17 @@ MAX_AGE = 21 * 86400
 
 GUIDE_Q = """query($h: Short!, $p: MatchPlayerPositionType!) {
   heroStats { guide(heroId: $h, positionId: $p) { guides { matchId } } } }"""
-MATCH_Q = """query($ids: [Long]!) { matches(ids: $ids) {
-  id startDateTime durationSeconds didRadiantWin rank averageRank radiantNetworthLeads
+MATCH_FIELDS = """id startDateTime durationSeconds didRadiantWin rank averageRank radiantNetworthLeads
   players { heroId isRadiant position kills deaths assists goldPerMinute networth
     steamAccount { name seasonRank proSteamAccount { name } }
-    abilities { abilityId time level } stats { itemPurchases { time itemId } } } } }"""
+    abilities { abilityId time level } stats { itemPurchases { time itemId } } }"""
+
+
+def match_query(ids):
+    # запрос matches(ids) у STRATZ только для админов, а одиночные match(id) с алиасами разрешены
+    return "{ " + " ".join(f"m{i}: match(id: {int(x)}) {{ {MATCH_FIELDS} }}" for i, x in enumerate(ids)) + " }"
+
+
 POS = {"POSITION_1": 1, "POSITION_2": 2, "POSITION_3": 3, "POSITION_4": 4, "POSITION_5": 5}
 
 
@@ -70,7 +76,7 @@ def _rows_from_match(m, item_ids):
     return rows
 
 
-def fetch(wanted, item_ids, budget=400):
+def fetch(wanted, item_ids, budget=450):
     """wanted: список (hero_id, pos), где мало про-игр. Возвращает строки всех игроков найденных матчей."""
     token = os.environ.get("STRATZ_TOKEN")
     if not token or not wanted:
@@ -97,12 +103,12 @@ def fetch(wanted, item_ids, budget=400):
     fails = 0
     while i < len(need) and calls < budget and fails < 6:
         batch = need[i:i + step]
-        d = stratz.gql(MATCH_Q, {"ids": batch}, token, tries=1)
+        d = stratz.gql(match_query(batch), {}, token, tries=1)
         calls += 1
         fails = 0 if d else fails + 1
         time.sleep(1.2)
-        if d and d.get("matches"):
-            for m in d["matches"]:
+        if d:
+            for m in d.values():
                 if m:
                     cache[str(m["id"])] = {"start": m.get("startDateTime"), "m": m}
             i += step
