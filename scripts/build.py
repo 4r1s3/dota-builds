@@ -85,7 +85,7 @@ def fetch_rows(days):
                pm.ability_upgrades_arr::text AS abilities,
                m.radiant_win, m.start_time, m.duration,
                m.radiant_gold_adv::text AS gold_adv,
-               l.name AS league, np.name AS pro_name
+               l.name AS league, np.name AS pro_name, np.team_name AS team
         FROM player_matches pm
         JOIN matches m USING(match_id)
         LEFT JOIN leagues l USING(leagueid)
@@ -376,7 +376,7 @@ def main():
                 c["alt"] = {k: best_alt[k] for k in ("key", "share", "wr", "time", "n")}
                 used.add(best_alt["key"])
 
-    def game_cards(gs, fbs, standard_, med_gpm_):
+    def game_cards(gs, fbs, standard_, med_gpm_, limit=12):
         cards = []
         for g, fb in sorted(zip(gs, fbs), key=lambda x: -x[0]["start_time"]):
             radiant = g["player_slot"] < 128
@@ -410,11 +410,13 @@ def main():
                 "maxAdv": max(team_adv) if team_adv else None,
                 "minAdv": min(team_adv) if team_adv else None,
                 "flag": "stomp" if stomp else ("hard" if hard else None),
-                "allies": allies, "enemies": enemies,
+                "allies": allies, "enemies": enemies, "hero": g["hero_id"], "pos": g.get("pos"),
                 "items": build,
             })
+        if limit is None:
+            return cards
         named = [c for c in cards if c["player"] != "аноним"]
-        return (named + [c for c in cards if c["player"] == "аноним"])[:12]
+        return (named + [c for c in cards if c["player"] == "аноним"])[:limit]
 
     def pub_cards(hid_, pos_, standard_):
         gs = pub_groups.get((hid_, pos_), [])
@@ -430,6 +432,7 @@ def main():
                 continue
             groups[(r["hero_id"], r["pos"])].append(r)
 
+    standards, med_gpms = {}, {}
     hero_index = []
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "heroes").mkdir(exist_ok=True)
@@ -534,6 +537,8 @@ def main():
             standard = {i["key"] for i in core + situational} | {c["alt"]["key"] for c in core if c.get("alt")}
             used_items.update(i["key"] for i in start_items + core + situational)
             used_items.update(c["alt"]["key"] for c in core if c.get("alt"))
+            standards[(hid, pos)] = standard
+            med_gpms[(hid, pos)] = med_gpm
             pro_only = [(g, fb) for g, fb in zip(games, first_buy) if g.get("src", "pro") == "pro"]
             pro_games = game_cards([g for g, _ in pro_only], [fb for _, fb in pro_only], standard, med_gpm)
             pub_games = pub_cards(hid, pos, standard)
@@ -570,6 +575,43 @@ def main():
             "positions": {p: positions[p]["games"] for p in positions},
             "imm": {p: positions[p]["imm"]["games"] for p in positions if "imm" in positions[p]},
         })
+
+    # --- про-игроки: карточки и история матчей
+    by_player = defaultdict(list)
+    for r in rows:
+        if r.get("src", "pro") == "pro" and r.get("account_id") and r.get("pro_name") and r["purchase_log"]:
+            by_player[r["account_id"]].append(r)
+    (OUT / "players").mkdir(exist_ok=True)
+    player_index = []
+    for acc, gs in by_player.items():
+        if only and not any(g["hero_id"] in only for g in gs):
+            continue
+        fbs = [fb_all.get((g["match_id"], g["hero_id"]), {}) for g in gs]
+        cards = []
+        for g, fb in zip(gs, fbs):
+            key = (g["hero_id"], g.get("pos"))
+            cards += game_cards([g], [fb], standards.get(key, set()), med_gpms.get(key), limit=None)
+        cards.sort(key=lambda c: -c["date"])
+        heroes_stat = defaultdict(lambda: [0, 0])
+        pos_cnt = Counter()
+        for c in cards:
+            heroes_stat[c["hero"]][0] += 1
+            heroes_stat[c["hero"]][1] += c["win"]
+            if c["pos"]:
+                pos_cnt[c["pos"]] += 1
+        wins = sum(c["win"] for c in cards)
+        hs = sorted(({"id": h, "games": v[0], "wins": v[1]} for h, v in heroes_stat.items()),
+                    key=lambda x: (-x["games"], -x["wins"]))
+        main_pos = pos_cnt.most_common(1)[0][0] if pos_cnt else None
+        info = {"id": acc, "name": gs[0]["pro_name"], "team": next((g.get("team") for g in gs if g.get("team")), None),
+                "games": len(cards), "wins": wins, "pos": main_pos, "posCount": dict(pos_cnt), "heroes": hs,
+                "last": cards[0]["date"] if cards else 0}
+        (OUT / "players" / f"{acc}.json").write_text(
+            json.dumps({**info, "matches": cards}, ensure_ascii=False, separators=(",", ":")))
+        player_index.append(info)
+    player_index.sort(key=lambda p: (-p["games"], p["name"].lower()))
+    (OUT / "players.json").write_text(json.dumps(player_index, ensure_ascii=False, separators=(",", ":")))
+    print(f"Про-игроков: {len(player_index)}")
 
     # словари для отображения
     item_dict = {k: {"name": items[k].get("dname", k), "img": CDN + items[k]["img"].split("?")[0],

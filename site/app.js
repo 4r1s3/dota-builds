@@ -58,7 +58,10 @@ function renderGrid() {
     const has = Object.keys(h.positions).length;
     return `<div class="hero ${has ? "" : "nodata"} ${i === 0 && $("#q").value ? "sel" : ""}" data-id="${h.id}" title="${esc(h.name)}">
       <img loading="lazy" src="${h.img}" alt=""><div class="n">${esc(h.name)}</div></div>`;
-  }).join("") || `<div class="empty-msg">Ничего не нашлось</div>`;
+  }).join("") || `<div class="empty-msg">Героев не нашлось</div>`;
+  const pl = filterPlayers($("#q").value).slice(0, 12);
+  $("#found").innerHTML = pl.length ? `<h2>Про-игроки</h2><div class="pgrid">${pl.map(playerCard).join("")}</div>` : "";
+  $("#found").hidden = !pl.length;
 }
 
 // ---------- карточка героя
@@ -99,9 +102,8 @@ async function showHero(id, pos) {
     }),
   } : raw);
   history.replaceState(history.state, "", `#h${id}-${pos}`);
-  $("#grid").hidden = true;
+  setView("card");
   const card = $("#card");
-  card.hidden = false;
 
   const tabs = [1, 2, 3, 4, 5].map(p => {
     const n = hero.positions[p] || 0, im = (hero.imm || {})[p] || 0;
@@ -187,42 +189,7 @@ async function showHero(id, pos) {
 
   const th = DB.meta.thresholds;
   const list = useImm ? (raw.pubs || []) : (raw.pro || []);
-  const heroIcon = id => {
-    const h = HERO_BY_ID[id];
-    return h ? `<img class="hi" loading="lazy" src="${h.img}" alt="" data-tip="${esc(h.name)}">` : "";
-  };
-  const games = list.map(g => {
-    let badge = "";
-    if (g.flag === "stomp") badge = `<span class="badge stomp" data-tip="Перевес команды до ${k(g.maxAdv)} или GPM сильно выше обычного. Билд мог быть «жадным» — повторять только при таком же ходе игры">Игра шла очень хорошо · ${k(g.maxAdv)}</span>`;
-    if (g.flag === "hard") badge = `<span class="badge hard" data-tip="Команда отставала до ${k(g.minAdv)}. Билд мог быть оборонительным">Тяжёлая игра · ${k(g.minAdv)}</span>`;
-    const tile = i => itemTile(i.key, `<span class="gt">${mmss(i.time)}</span>`, "gi" + (i.odd ? " odd" : ""),
-      `${(DB.items[i.key] || {}).name} — куплен на ${mmss(i.time)}, перевес команды ${k(i.adv)}${i.odd ? " · НЕ из стандартного билда" : ""}${i.why ? "\nПочему: " + i.why : ""}`);
-    const phases = [["Лайн", "0–10 мин", 0, 600], ["Мидгейм", "10–25 мин", 600, 1500], ["Лейт", "25+ мин", 1500, 1e9]]
-      .map(([name, range, a, b]) => {
-        const list = g.items.filter(i => i.time >= a && i.time < b);
-        return list.length ? `<div class="phase"><div class="ph">${name} <small>${range}</small></div><div class="gitems">${list.map(tile).join("")}</div></div>` : "";
-      }).join("");
-    const whys = g.items.filter(i => i.odd && i.why).map(i => `<div class="why"><b>${esc((DB.items[i.key] || {}).name || i.key)}</b> <span class="t">на ${mmss(i.time)}</span> — ${esc(i.why)}</div>`).join("");
-    const chip = (label, val, tip) => `<span class="chip" ${tip ? `data-tip="${tip}"` : ""}>${label ? `<i>${label}</i>` : ""}${val}</span>`;
-    return `<div class="game"><div class="ghead">
-      <span class="pl">${esc(g.player)}</span>${g.src === "pub" ? `<span class="pub" data-tip="Рейтинговая игра Immortal${g.rank ? ", ранг " + g.rank : ""}">паб Immortal</span>` : ""}
-      <span class="res ${g.win ? "w" : "l"}">${g.win ? "Победа" : "Поражение"}</span>
-      ${badge}
-      <span class="links"><a href="https://www.opendota.com/matches/${g.match}" target="_blank" rel="noopener">OpenDota</a>
-      <a href="https://stratz.com/matches/${g.match}" target="_blank" rel="noopener">STRATZ</a></span>
-    </div>
-    <div class="chips">
-      ${chip("K / D / A", `<b class="kk">${g.k}</b> / <b class="dd">${g.d}</b> / <b>${g.a}</b>`, "Убийства / смерти / помощь")}
-      ${chip("GPM", `<b>${g.gpm}</b>`, "Золото в минуту")}
-      ${chip("Длительность", `<b>${mmss(g.dur)}</b>`)}
-      ${chip("", `${esc(g.league || "")} · ${ago(g.date)}`)}
-    </div>
-    <div class="gbody"><div class="phases">${phases}</div>
-      ${g.enemies && g.enemies.length ? `<div class="teams">
-        <div class="team"><span>С кем</span><div>${(g.allies || []).map(heroIcon).join("")}</div></div>
-        <div class="team vs"><span>Против</span><div>${g.enemies.map(heroIcon).join("")}</div></div></div>` : ""}
-    </div>${whys ? `<div class="whys">${whys}</div>` : ""}</div>`;
-  }).join("");
+  const games = list.map(g => gameCard(g)).join("");
 
   const maxOrder = useImm && raw.imm.maxOrder.length ? `<h2>Что качать в первую очередь (Immortal)</h2><div class="maxo">${raw.imm.maxOrder.map((m, i) => {
       const a = DB.abilities[m.name] || {name: m.name};
@@ -262,9 +229,19 @@ function bind(hero) {
 
 // Навигация через историю браузера: «назад» (в т.ч. кнопка мыши 4) возвращает на предыдущую страницу
 function openHero(id) {
-  history.pushState({app: 1}, "", `#h${id}`);
-  showHero(id);
+  go(`#h${id}`);
 }
+function go(hash) {
+  history.pushState({app: 1}, "", hash || location.pathname + location.search);
+  route();
+}
+// все внутренние ссылки (#...) и карточки игроков — через историю
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[href^='#']");
+  const card = e.target.closest(".pcard");
+  if (a) { e.preventDefault(); return go(a.getAttribute("href") === "#" ? "" : a.getAttribute("href")); }
+  if (card) go(`#p${card.dataset.player}`);
+});
 function goGrid() {
   if (history.state && history.state.app) history.back();
   else { history.replaceState(null, "", location.pathname + location.search); route(); }
@@ -273,11 +250,138 @@ function goGrid() {
 }
 
 function route() {
-  const m = location.hash.match(/^#h(\d+)(?:-(\d))?$/);
-  if (m) return showHero(+m[1], m[2] ? +m[2] : null);
-  $("#card").hidden = true;
-  $("#grid").hidden = false;
+  const h = location.hash;
+  let m;
+  if ((m = h.match(/^#h(\d+)(?:-(\d))?$/))) return showHero(+m[1], m[2] ? +m[2] : null);
+  if ((m = h.match(/^#p(\d+)(?:-h(\d+))?$/))) return showPlayer(+m[1], m[2] ? +m[2] : null);
+  if ((m = h.match(/^#players(?:-(\d))?$/))) return showPlayers(m[1] ? +m[1] : 0);
+  setView("heroes");
   renderGrid();
+}
+
+// ---------- карточка матча (общая для героя и игрока)
+function heroIcon(id, cls = "hi") {
+  const h = HERO_BY_ID[id];
+  return h ? `<img class="${cls}" loading="lazy" src="${h.img}" alt="" data-tip="${esc(h.name)}">` : "";
+}
+function gameCard(g, opts = {}) {
+  let badge = "";
+  if (g.flag === "stomp") badge = `<span class="badge stomp" data-tip="Перевес команды до ${k(g.maxAdv)} или GPM сильно выше обычного. Билд мог быть «жадным» — повторять только при таком же ходе игры">Игра шла очень хорошо · ${k(g.maxAdv)}</span>`;
+  if (g.flag === "hard") badge = `<span class="badge hard" data-tip="Команда отставала до ${k(g.minAdv)}. Билд мог быть оборонительным">Тяжёлая игра · ${k(g.minAdv)}</span>`;
+  const tile = i => itemTile(i.key, `<span class="gt">${mmss(i.time)}</span>`, "gi" + (i.odd ? " odd" : ""),
+    `${(DB.items[i.key] || {}).name} — куплен на ${mmss(i.time)}, перевес команды ${k(i.adv)}${i.odd ? " · НЕ из стандартного билда" : ""}${i.why ? "\nПочему: " + i.why : ""}`);
+  const phases = [["Лайн", "0–10 мин", 0, 600], ["Мидгейм", "10–25 мин", 600, 1500], ["Лейт", "25+ мин", 1500, 1e9]]
+    .map(([name, range, a, b]) => {
+      const list = g.items.filter(i => i.time >= a && i.time < b);
+      return list.length ? `<div class="phase"><div class="ph">${name} <small>${range}</small></div><div class="gitems">${list.map(tile).join("")}</div></div>` : "";
+    }).join("");
+  const whys = g.items.filter(i => i.odd && i.why).map(i => `<div class="why"><b>${esc((DB.items[i.key] || {}).name || i.key)}</b> <span class="t">на ${mmss(i.time)}</span> — ${esc(i.why)}</div>`).join("");
+  const chip = (label, val, tip) => `<span class="chip" ${tip ? `data-tip="${tip}"` : ""}>${label ? `<i>${label}</i>` : ""}${val}</span>`;
+  const h = HERO_BY_ID[g.hero];
+  const who = opts.showHero && h
+    ? `<a class="ghero" href="#h${h.id}${g.pos ? "-" + g.pos : ""}">${heroIcon(h.id, "hb")}<span>${esc(h.name)}${g.pos ? ` <small>pos ${g.pos}</small>` : ""}</span></a>`
+    : `<span class="pl">${esc(g.player)}</span>`;
+  return `<div class="game"><div class="ghead">
+    ${who}${g.src === "pub" ? `<span class="pub" data-tip="Рейтинговая игра Immortal${g.rank ? ", ранг " + g.rank : ""}">паб Immortal</span>` : ""}
+    <span class="res ${g.win ? "w" : "l"}">${g.win ? "Победа" : "Поражение"}</span>
+    ${badge}
+    <span class="links"><a href="https://www.opendota.com/matches/${g.match}" target="_blank" rel="noopener">OpenDota</a>
+    <a href="https://stratz.com/matches/${g.match}" target="_blank" rel="noopener">STRATZ</a></span>
+  </div>
+  <div class="chips">
+    ${chip("K / D / A", `<b class="kk">${g.k}</b> / <b class="dd">${g.d}</b> / <b>${g.a}</b>`, "Убийства / смерти / помощь")}
+    ${chip("GPM", `<b>${g.gpm}</b>`, "Золото в минуту")}
+    ${chip("Длительность", `<b>${mmss(g.dur)}</b>`)}
+    ${chip("", `${esc(g.league || "")} · ${ago(g.date)}`)}
+  </div>
+  <div class="gbody"><div class="phases">${phases}</div>
+    ${g.enemies && g.enemies.length ? `<div class="teams">
+      <div class="team"><span>С кем</span><div>${(g.allies || []).map(id => heroIcon(id)).join("")}</div></div>
+      <div class="team vs"><span>Против</span><div>${g.enemies.map(id => heroIcon(id)).join("")}</div></div></div>` : ""}
+  </div>${whys ? `<div class="whys">${whys}</div>` : ""}</div>`;
+}
+
+// ---------- про-игроки
+let PLAYERS = null;
+const pcache = {};
+async function loadPlayers() {
+  if (!PLAYERS) {
+    const r = await fetch(`data/players.json?v=${DB.meta.updated}`);
+    PLAYERS = r.ok ? await r.json() : [];
+  }
+  return PLAYERS;
+}
+function filterPlayers(q) {
+  q = q.trim().toLowerCase();
+  if (!q || !PLAYERS) return [];
+  const qs = [q];
+  if (/[а-я]/.test(q) && typeof fromRuLayout === "function") qs.push(fromRuLayout(q));
+  const starts = [], incl = [];
+  for (const p of PLAYERS) {
+    const n = (p.name || "").toLowerCase(), t = (p.team || "").toLowerCase();
+    if (qs.some(x => n.startsWith(x))) starts.push(p);
+    else if (qs.some(x => x.length > 1 && (n.includes(x) || t.includes(x)))) incl.push(p);
+  }
+  return [...starts, ...incl];
+}
+const wr = (w, n) => n ? Math.round(w / n * 100) + "%" : "–";
+function playerCard(p) {
+  const hs = p.heroes.slice(0, 6).map(h => `<a class="phero" href="#p${p.id}-h${h.id}" data-tip="${esc((HERO_BY_ID[h.id] || {}).name || "")}: ${h.games} игр, винрейт ${wr(h.wins, h.games)}">
+      ${heroIcon(h.id, "pi")}<span>${h.games} · <b class="${h.wins / h.games >= .5 ? "g" : "r"}">${wr(h.wins, h.games)}</b></span></a>`).join("");
+  return `<div class="pcard" data-player="${p.id}">
+    <div class="ptop"><div><div class="pname">${esc(p.name)}</div><div class="pteam">${esc(p.team || "без команды")}</div></div>
+      <div class="ppos">${p.pos ? "Pos " + p.pos : ""}</div></div>
+    <div class="pstat"><b>${p.games}</b> игр · винрейт <b class="${p.wins / p.games >= .5 ? "g" : "r"}">${wr(p.wins, p.games)}</b> · ${ago(p.last)}</div>
+    <div class="pheroes">${hs}</div></div>`;
+}
+async function showPlayers(pos) {
+  await loadPlayers();
+  setView("players");
+  const tabs = [0, 1, 2, 3, 4, 5].map(p => {
+    const n = p ? PLAYERS.filter(x => x.pos === p).length : PLAYERS.length;
+    return `<button class="tab ${p === (pos || 0) ? "on" : ""}" data-ppos="${p}">${p ? POS[p] : "Все"} <small>${n}</small></button>`;
+  }).join("");
+  const q = $("#q").value.trim();
+  let list = q ? filterPlayers(q) : PLAYERS;
+  if (pos) list = list.filter(x => x.pos === pos);
+  $("#players").innerHTML = `<div class="tabs">${tabs}</div>
+    <div class="legend">Про-игроки из матчей за последние ${DB.meta.days} дн. Нажми на игрока — история матчей, на героя — матчи только на нём.</div>
+    <div class="pgrid">${list.map(playerCard).join("") || '<div class="empty-msg">Никого не нашлось</div>'}</div>`;
+  $("#players").querySelectorAll("[data-ppos]").forEach(b => b.onclick = () => {
+    const p = +b.dataset.ppos;
+    history.replaceState(history.state, "", p ? `#players-${p}` : "#players");
+    showPlayers(p);
+  });
+}
+async function showPlayer(id, heroId) {
+  if (!pcache[id]) {
+    const r = await fetch(`data/players/${id}.json?v=${DB.meta.updated}`);
+    pcache[id] = r.ok ? await r.json() : null;
+  }
+  const p = pcache[id];
+  setView("card");
+  const card = $("#card");
+  if (!p) { card.innerHTML = `<div class="empty-msg">Игрок не найден</div>`; return; }
+  const list = heroId ? p.matches.filter(m => m.hero === heroId) : p.matches;
+  const chips = [`<a class="hchip ${heroId ? "" : "on"}" href="#p${p.id}">Все герои <small>${p.games}</small></a>`]
+    .concat(p.heroes.map(h => `<a class="hchip ${h.id === heroId ? "on" : ""}" href="#p${p.id}-h${h.id}">${heroIcon(h.id, "hc")}${esc((HERO_BY_ID[h.id] || {}).name || "")} <small>${h.games} · ${wr(h.wins, h.games)}</small></a>`)).join("");
+  const posInfo = Object.entries(p.posCount || {}).sort((a, b) => b[1] - a[1]).map(([k2, v]) => `pos ${k2}: ${v}`).join(", ");
+  card.innerHTML = `<div class="head"><button class="back">← Назад</button>
+    <div><h1>${esc(p.name)}</h1><div class="stats">${esc(p.team || "без команды")} · <b>${p.games}</b> игр · винрейт <b>${wr(p.wins, p.games)}</b>${posInfo ? " · " + posInfo : ""}</div></div></div>
+    <h2>Герои</h2><div class="hchips">${chips}</div>
+    <h2>${heroId ? `Матчи на ${esc((HERO_BY_ID[heroId] || {}).name || "")}` : "Все матчи"} — от новых к старым <small class="stats">(${list.length})</small></h2>
+    <div class="legend"><i></i> — предмет не из стандартного билда героя на этой позиции</div>
+    <div class="pro">${list.map(g => gameCard(g, {showHero: true})).join("") || '<div class="empty-msg">Нет матчей</div>'}</div>`;
+  card.querySelector(".back").onclick = goGrid;
+  window.scrollTo(0, 0);
+}
+function setView(v) {
+  $("#grid").hidden = v !== "heroes";
+  $("#found").hidden = v !== "heroes" || !$("#found").innerHTML;
+  $("#players").hidden = v !== "players";
+  $("#card").hidden = v !== "card";
+  const tab = v === "players" || /^#p\d/.test(location.hash) ? "players" : "heroes";
+  document.querySelectorAll(".nav a").forEach(a => a.classList.toggle("on", a.dataset.nav === tab));
 }
 
 // ---------- подсказки
@@ -315,14 +419,20 @@ document.addEventListener("click", e => {
   DB.heroes.forEach(h => HERO_BY_ID[h.id] = h);
   const m = DB.meta;
   $("#meta").innerHTML = `Патч ${esc(m.patch)} · ${m.matches} про-матчей за ${m.days} дн.${m.stratz ? " + Immortal (STRATZ)" : ""}<br>обновлено ${new Date(m.updated * 1000).toLocaleString("ru-RU")}`;
+  loadPlayers().then(() => { if (!$("#grid").hidden) renderGrid(); });
   $("#q").addEventListener("input", () => {
+    if (!$("#players").hidden) return showPlayers(+(location.hash.match(/-(\d)$/) || [0, 0])[1]);
     if ($("#grid").hidden) history.replaceState(null, "", location.pathname + location.search);
     route();
   });
   $("#q").addEventListener("keydown", e => {
     if (e.key === "Enter") {
-      const h = filterHeroes($("#q").value).find(h => Object.keys(h.positions).length) || filterHeroes($("#q").value)[0];
-      if (h) openHero(h.id);
+      const q = $("#q").value;
+      const h = filterHeroes(q).find(h => Object.keys(h.positions).length) || filterHeroes(q)[0];
+      const p = filterPlayers(q)[0];
+      if (!$("#players").hidden && p) go(`#p${p.id}`);
+      else if (h && q.trim()) openHero(h.id);
+      else if (p) go(`#p${p.id}`);
     }
   });
   $("#grid").addEventListener("click", e => {

@@ -153,3 +153,30 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)
 .hi{width:46px;height:26px;object-fit:cover;border-radius:3px;border:1px solid var(--line)}
 .team.vs .hi{border-color:rgba(217,83,79,.5)}
 @media (max-width:600px){.teams{margin-left:0}.hi{width:38px;height:22px}}
+.nav{display:flex;gap:4px}
+.nav a{padding:6px 10px;border-radius:6px;text-decoration:none;color:var(--dim);border:1px solid transparent;white-space:nowrap}
+.nav a.on{color:var(--text);border-color:var(--line);background:var(--panel)}
+#found h2{margin-top:22px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.pcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;transition:border-color .1s}
+.pcard:hover{border-color:var(--accent)}
+.ptop{display:flex;justify-content:space-between;align-items:flex-start}
+.pname{font-weight:800;font-size:16px}
+.pteam{font-size:12px;color:var(--dim)}
+.ppos{font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--gold)}
+.pstat{font-size:12px;color:var(--dim);margin:6px 0 8px}
+.pstat b{color:var(--text)}
+b.g{color:var(--good)!important} b.r{color:var(--bad)!important}
+.pheroes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.phero{display:block;text-decoration:none;text-align:center;font-size:11px;color:var(--dim);border-radius:5px;padding:2px}
+.phero:hover{background:var(--panel2)}
+.pi{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;display:block;margin-bottom:2px;border:1px solid var(--line)}
+.hchips{display:flex;flex-wrap:wrap;gap:6px}
+.hchip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px 4px 4px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);text-decoration:none;color:var(--text);font-size:12px}
+.hchip small{color:var(--dim)}
+.hchip.on{border-color:var(--accent);background:rgba(224,83,61,.15)}
+.hc{width:36px;height:20px;object-fit:cover;border-radius:3px}
+.ghero{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font-weight:700;font-size:15px}
+.ghero small{color:var(--gold);font-weight:600}
+.hb{width:58px;height:33px;object-fit:cover;border-radius:4px;border:1px solid var(--line)}
+@media (max-width:600px){.nav a{padding:5px 6px;font-size:12px}}

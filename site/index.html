@@ -10,11 +10,14 @@
 <body>
 <header class="top">
   <a href="#" class="logo">DOTA<span>BUILDS</span></a>
-  <input id="q" type="search" placeholder="Герой: io, wisp, am, pa, sf…" autocomplete="off" autofocus>
+  <nav class="nav"><a href="#" data-nav="heroes">Герои</a><a href="#players" data-nav="players">Про-игроки</a></nav>
+  <input id="q" type="search" placeholder="Герой или игрок: io, пудж, am, 9class…" autocomplete="off" autofocus>
   <div id="meta" class="meta"></div>
 </header>
 <main>
   <section id="grid" class="grid"></section>
+  <section id="found" hidden></section>
+  <section id="players" hidden></section>
   <section id="card" class="card" hidden></section>
 </main>
 <div id="tip" class="tip" hidden></div>
