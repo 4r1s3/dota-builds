@@ -65,8 +65,9 @@ def wmedian(pairs):
     return pairs[-1][0]
 
 
-def fetch_hero(hid, item_ids, ability_ids, talent_level, is_build_item):
+def fetch_hero(hid, item_ids, ability_ids, talent_level, is_build_item, item_costs=None):
     """Возвращает {pos: {...}} со статистикой Immortal для героя."""
+    item_costs = item_costs or {}
     token = os.environ.get("STRATZ_TOKEN")
     if not token:
         return {}
@@ -128,7 +129,18 @@ def fetch_hero(hid, item_ids, ability_ids, talent_level, is_build_item):
             key = item_ids.get(str(r["itemId"]))
             if key and not r.get("wasGiven") and r["matchCount"] / games >= 0.5:
                 typical[key] = max(typical.get(key, 0), r["instance"] or 1)
-        start_set = [{"key": k, "count": c} for k, c in typical.items()]
+        # не дороже стартовых 600 золота: добавляем по убыванию популярности, пока влезает
+        share = {}
+        for r in hs.get(f"s{n}") or []:
+            key = item_ids.get(str(r["itemId"]))
+            if key in typical and (r["instance"] or 1) == typical[key]:
+                share[key] = r["matchCount"] / games
+        start_set, spent = [], 0
+        for k, c in sorted(typical.items(), key=lambda kv: -share.get(kv[0], 0)):
+            cost = (item_costs.get(k) or 0) * c
+            if spent + cost <= 600:
+                start_set.append({"key": k, "count": c})
+                spent += cost
         # таланты
         tal = defaultdict(dict)
         for r in hs.get(f"t{n}") or []:

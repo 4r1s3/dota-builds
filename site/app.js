@@ -155,20 +155,24 @@ async function showHero(id, pos) {
   const start = d.start.map(s => `<div class="ic" data-tip="${nm(s.key)} — берут в ${pct(s.share)} игр">
       <div class="pic">${icon(s.key)}${s.count > 1 ? `<span class="cnt">×${s.count}</span>` : ""}</div>
       <div class="nm">${nm(s.key)}</div>${bar(s.share)}<div class="sub">${pct(s.share)} игр</div></div>`).join("");
-  const setCard = (title, its, meta, players, cls = "") => `<div class="variant ${cls}">
+  const vrow = its => its.map(i => `<div class="vi" data-tip="${nm(i.key)}${i.count > 1 ? " ×" + i.count : ""}">${icon(i.key)}${i.count > 1 ? `<span class="cnt">×${i.count}</span>` : ""}<div class="vn">${nm(i.key)}</div></div>`).join("");
+  const setCard = (title, its, meta, players, cls = "", v = null) => `<div class="variant ${cls}">
       <div class="vt">${title}</div>
-      <div class="vitems">${its.map(i => `<div class="vi" data-tip="${nm(i.key)}${i.count > 1 ? " ×" + i.count : ""}">${icon(i.key)}${i.count > 1 ? `<span class="cnt">×${i.count}</span>` : ""}<div class="vn">${nm(i.key)}</div></div>`).join("")}</div>
+      <div class="vsub">До горна</div>
+      <div class="vitems">${vrow(its)}</div>
+      ${v && v.after && v.after.length ? `<div class="vsub after" data-tip="Самый частый вариант у этого закупа: в ${v.afterGames} из ${v.games} игр. Обычно приносит курьер, пока герой идёт в лайн">Докупают в первую минуту после горна <small>${v.afterGames} из ${v.games}</small></div>
+      <div class="vitems">${vrow(v.after)}</div>` : ""}
       <div class="vm">${meta}</div>${players && players.length ? `<div class="vp">Брали: ${players.map(esc).join(", ")}</div>` : ""}</div>`;
   const cost = its => its.reduce((s, i) => s + ((DB.items[i.key] || {}).cost || 0) * i.count, 0);
   const sets = (raw.startSets || []);
-  const setMeta = v => `<b>${v.games}</b> из ${raw.games} игр (${pct(v.share)}) · винрейт <b>${pct(v.wr)}</b> · ≈${v.cost} золота`;
+  const setMeta = v => `<b>${v.games}</b> из ${raw.games} игр (${pct(v.share)}) · винрейт <b>${pct(v.wr)}</b> · ${v.cost} из 600 золота`;
   let variants;
   if (useImm && raw.imm.startSet && raw.imm.startSet.length) {
     variants = setCard("Основной закуп", raw.imm.startSet,
-      `то, что берут больше чем в половине из ${raw.imm.games.toLocaleString("ru-RU")} игр Divine/Immortal · ≈${cost(raw.imm.startSet)} золота`, null, "main")
-      + (sets[0] ? setCard("Ситуативный — как берут про-игроки", sets[0].items, setMeta(sets[0]), sets[0].players) : "");
+      `то, что берут больше чем в половине из ${raw.imm.games.toLocaleString("ru-RU")} игр Divine/Immortal · ${cost(raw.imm.startSet)} из 600 золота`, null, "main")
+      + (sets[0] ? setCard("Ситуативный — как берут про-игроки", sets[0].items, setMeta(sets[0]), sets[0].players, "", sets[0]) : "");
   } else {
-    variants = sets.slice(0, 2).map((v, i) => setCard(i ? "Ситуативный" : "Основной закуп", v.items, setMeta(v), v.players, i ? "" : "main")).join("");
+    variants = sets.slice(0, 2).map((v, i) => setCard(i ? "Ситуативный" : "Основной закуп", v.items, setMeta(v), v.players, i ? "" : "main", v)).join("");
   }
   const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт с ним ${pct(c.wr)}">
       <div class="pic">${icon(c.key)}<span class="step">${i + 1}</span></div>

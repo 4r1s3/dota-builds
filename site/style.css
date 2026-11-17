@@ -182,3 +182,7 @@ b.g{color:var(--good)!important} b.r{color:var(--bad)!important}
 @media (max-width:600px){.nav a{padding:5px 6px;font-size:12px}}
 
 .tmark.late{background:transparent;border:2px dashed var(--gold);color:var(--gold)}
+
+.vsub{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:2px 0 5px}
+.vsub.after{margin-top:10px;color:var(--gold)}
+.vsub small{text-transform:none;letter-spacing:0;color:var(--dim)}

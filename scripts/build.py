@@ -312,7 +312,8 @@ def main():
             if only and hid not in only:
                 continue
             tl = {t["name"]: t["level"] for t in hero_abilities.get(h["name"], {}).get("talents", [])}
-            imm_all[hid] = stratz.fetch_hero(hid, item_ids, ability_ids, tl, is_build_item)
+            imm_all[hid] = stratz.fetch_hero(hid, item_ids, ability_ids, tl, is_build_item,
+                                             {k: v.get("cost") for k, v in items.items()})
             time.sleep(1.2)
         pro_cnt = Counter((r["hero_id"], r.get("pos")) for r in rows if r.get("pos"))
         wanted, popular = [], []
@@ -430,6 +431,29 @@ def main():
         gpm = median([g["gold_per_min"] for g in gs if g["gold_per_min"]])
         return game_cards(gs, fbs, standard_ | local, gpm)
 
+    START_GOLD = 600
+
+    def set_cost(cnt):
+        return sum((items.get(k, {}).get("cost") or 0) * c for k, c in cnt.items())
+
+    def opening(log):
+        """Стартовый закуп (до горна) и докупка в первую минуту после горна.
+
+        Если из купленного сразу собрали предмет (Stick + 2 Branches + рецепт = Magic Wand),
+        в логе есть и компоненты, и сам предмет — компоненты убираем, иначе выходит «закуп на 1400».
+        """
+        evs = [dict(e) for e in log if e["time"] <= 60 and not e["key"].startswith("recipe_")]
+        for i, e in enumerate(evs):
+            comps = items.get(e["key"], {}).get("components") or []
+            for c in comps:
+                for prev in evs[:i]:
+                    if prev["key"] == c and not prev.get("used"):
+                        prev["used"] = True
+                        break
+        start = Counter(e["key"] for e in evs if e["time"] <= 0 and not e.get("used"))
+        after = Counter(e["key"] for e in evs if 0 < e["time"] <= 60 and not e.get("used"))
+        return start, after
+
     groups = defaultdict(list)
     for r in rows:
         if r.get("pos") and r["purchase_log"] and r["abilities"] not in (None, "", "{}"):
@@ -494,13 +518,16 @@ def main():
             start_counter = Counter()
             first_buy = []
             start_sets = defaultdict(list)
+            after_by_game = {}
             for g in games:
                 log = pg_array(g["purchase_log"])
-                start = Counter(e["key"] for e in log if e["time"] <= 0)
-                if start:
-                    start_sets[tuple(sorted(start.items()))].append(g)
-                for k, c in start.items():
-                    start_counter[(k, c)] += 1
+                start, after = opening(log)
+                if start and set_cost(start) <= START_GOLD:
+                    key_ = tuple(sorted(start.items()))
+                    start_sets[key_].append(g)
+                    after_by_game[id(g)] = tuple(sorted(after.items()))
+                    for k, c in start.items():
+                        start_counter[(k, c)] += 1
                 seen = {}
                 for e in log:
                     k = e["key"]
@@ -511,29 +538,35 @@ def main():
                     if any(t <= t2 and k in comp_of(k2) for k2, t2 in seen.items() if k2 != k):
                         del seen[k]
                 first_buy.append(seen)
+            n_start = sum(len(v) for v in start_sets.values()) or 1
             start_items = []
             best = {}
             for (k, c), cnt in start_counter.items():
-                if cnt / n >= 0.3 and (k not in best or cnt > best[k][1]):
+                if cnt / n_start >= 0.3 and (k not in best or cnt > best[k][1]):
                     best[k] = (c, cnt)
             for k, (c, cnt) in sorted(best.items(), key=lambda kv: -kv[1][1]):
-                start_items.append({"key": k, "count": c, "share": round(cnt / n, 2)})
+                start_items.append({"key": k, "count": c, "share": round(cnt / n_start, 2)})
             # готовые варианты стартового закупа (целые наборы, как их брали в играх)
             start_variants = []
             for combo, gs in sorted(start_sets.items(), key=lambda kv: -len(kv[1]))[:2]:
                 if len(gs) < 2 and start_variants:
                     break
                 won = sum(1 for g in gs if (g["player_slot"] < 128) == g["radiant_win"])
-                its = sorted(({"key": k, "count": c} for k, c in combo),
-                             key=lambda i: -(items.get(i["key"], {}).get("cost") or 0) * i["count"])
+                by_cost = lambda i: -(items.get(i["key"], {}).get("cost") or 0) * i["count"]
+                its = sorted(({"key": k, "count": c} for k, c in combo), key=by_cost)
+                # что докупают в первую минуту после горна (самый частый вариант у этого набора)
+                afters = Counter(after_by_game.get(id(g), ()) for g in gs)
+                after_combo, after_n = afters.most_common(1)[0]
+                after_items = sorted(({"key": k, "count": c} for k, c in after_combo), key=by_cost)
                 players = [p for p, _ in Counter(g["pro_name"] for g in gs if g["pro_name"]).most_common(3)]
                 start_variants.append({
                     "items": its, "games": len(gs), "share": round(len(gs) / n, 2),
                     "wr": round(won / len(gs), 2),
-                    "cost": sum((items.get(i["key"], {}).get("cost") or 0) * i["count"] for i in its),
+                    "cost": set_cost(dict(combo)),
+                    "after": after_items, "afterGames": after_n if after_items else 0,
                     "players": players,
                 })
-                used_items.update(i["key"] for i in its)
+                used_items.update(i["key"] for i in its + after_items)
             item_stats = item_table(games, first_buy)
             core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])
             situational = sorted([i for i in item_stats if 0.12 <= i["share"] < 0.4],
