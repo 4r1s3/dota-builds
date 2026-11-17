@@ -310,15 +310,16 @@ def main():
             imm_all[hid] = stratz.fetch_hero(hid, item_ids, ability_ids, tl, is_build_item)
             time.sleep(1.2)
         pro_cnt = Counter((r["hero_id"], r.get("pos")) for r in rows if r.get("pos"))
-        wanted = []
+        wanted, popular = [], []
         for hid, imm in imm_all.items():
             tot = sum(v["games"] for v in imm.values()) or 1
             for pos, v in imm.items():
-                if v["games"] / tot >= 0.1 and pro_cnt[(hid, pos)] < PUB_MIN:
-                    wanted.append((hid, pos))
+                if v["games"] / tot >= 0.1:
+                    (wanted if pro_cnt[(hid, pos)] < PUB_MIN else popular).append((hid, pos))
         want = set(wanted)
         try:
-            pub_rows = pubs.fetch(wanted, item_ids)
+            # сначала позиции, где про-игр мало, потом остальные популярные (для списка пабов)
+            pub_rows = pubs.fetch(wanted + popular, item_ids)
         except Exception as e:  # noqa: BLE001
             print(f"  ! пабы не загрузились: {e}", file=sys.stderr)
             pub_rows = []
@@ -334,6 +335,93 @@ def main():
     lifts = reasons.lift_table(matches, fb_all)
     item_names = {k: v.get("dname", k) for k, v in items.items()}
     components = {c for v in items.values() for c in (v.get("components") or [])}
+
+    pub_groups = defaultdict(list)
+    for r in rows:
+        if r.get("src") == "pub" and r.get("pos") and r["purchase_log"] not in (None, "", "[]"):
+            pub_groups[(r["hero_id"], r["pos"])].append(r)
+
+    def item_table(games_, fbs):
+        n_ = len(games_) or 1
+        freq_ = Counter(k for fb in fbs for k in fb)
+        times_ = defaultdict(list)
+        for fb in fbs:
+            for k, t in fb.items():
+                times_[k].append(t)
+        out_ = []
+        for k, c in freq_.items():
+            won = sum(1 for g, fb in zip(games_, fbs) if k in fb and (g["player_slot"] < 128) == g["radiant_win"])
+            out_.append({"key": k, "share": round(c / n_, 2), "time": median(times_[k]), "wr": round(won / c, 2), "n": c})
+        return out_
+
+    def add_alternatives(core_, item_stats_, fbs):
+        """Слот «или»: предмет, который берут примерно в то же время, но почти никогда вместе с этим."""
+        used = {c["key"] for c in core_}
+        for c in core_:
+            best_alt = None
+            for x in item_stats_:
+                if x["key"] in used or x["share"] < 0.1 or x["time"] is None or c["time"] is None:
+                    continue
+                if abs(x["time"] - c["time"]) > 420:
+                    continue
+                cc, xc = items.get(c["key"], {}).get("cost") or 0, items.get(x["key"], {}).get("cost") or 0
+                if cc and xc and not (0.5 <= xc / cc <= 2):
+                    continue  # альтернатива должна быть сопоставимой по цене
+                both = sum(1 for fb in fbs if c["key"] in fb and x["key"] in fb)
+                if both / max(1, min(c["n"], x["n"])) > 0.35:
+                    continue
+                if not best_alt or x["share"] > best_alt["share"]:
+                    best_alt = x
+            if best_alt:
+                c["alt"] = {k: best_alt[k] for k in ("key", "share", "wr", "time", "n")}
+                used.add(best_alt["key"])
+
+    def game_cards(gs, fbs, standard_, med_gpm_):
+        cards = []
+        for g, fb in sorted(zip(gs, fbs), key=lambda x: -x[0]["start_time"]):
+            radiant = g["player_slot"] < 128
+            adv = pg_array(g["gold_adv"]) or []
+            team_adv = [a if radiant else -a for a in adv]
+            early = team_adv[:STOMP_MINUTE + 1]
+            stomp = (early and max(early) >= STOMP_ADV) or (
+                med_gpm_ and g["gold_per_min"] and g["gold_per_min"] >= med_gpm_ * STOMP_GPM_RATIO)
+            hard = bool(early) and min(early) <= HARD_ADV
+            mates = matches.get(g["match_id"], [])
+            enemies = [e["hero_id"] for e in mates if (e["player_slot"] < 128) != radiant]
+            allies = [e["hero_id"] for e in mates if (e["player_slot"] < 128) == radiant and e["hero_id"] != g["hero_id"]]
+            build = []
+            for k, t in sorted(fb.items(), key=lambda kv: kv[1]):
+                minute = max(0, t // 60)
+                a = team_adv[minute] if minute < len(team_adv) else (team_adv[-1] if team_adv else None)
+                odd = k not in standard_
+                why = None
+                if odd:
+                    why = reasons.explain(k, t, team_adv, enemies,
+                                          {e: fb_all.get((g["match_id"], e), {}) for e in enemies},
+                                          heroes, lifts, item_names, components, g["duration"])
+                build.append({"key": k, "time": t, "adv": a, "odd": odd, "why": why})
+            used_items.update(fb)
+            cards.append({
+                "match": g["match_id"], "player": g["pro_name"] or "аноним",
+                "src": g.get("src", "pro"), "rank": g.get("rank"),
+                "league": g["league"], "date": g["start_time"], "dur": g["duration"],
+                "win": radiant == g["radiant_win"], "k": g["kills"], "d": g["deaths"],
+                "a": g["assists"], "gpm": g["gold_per_min"],
+                "maxAdv": max(team_adv) if team_adv else None,
+                "minAdv": min(team_adv) if team_adv else None,
+                "flag": "stomp" if stomp else ("hard" if hard else None),
+                "allies": allies, "enemies": enemies,
+                "items": build,
+            })
+        named = [c for c in cards if c["player"] != "аноним"]
+        return (named + [c for c in cards if c["player"] == "аноним"])[:12]
+
+    def pub_cards(hid_, pos_, standard_):
+        gs = pub_groups.get((hid_, pos_), [])
+        fbs = [fb_all.get((g["match_id"], g["hero_id"]), {}) for g in gs]
+        local = {i["key"] for i in item_table(gs, fbs) if i["share"] >= 0.12}
+        gpm = median([g["gold_per_min"] for g in gs if g["gold_per_min"]])
+        return game_cards(gs, fbs, standard_ | local, gpm)
 
     groups = defaultdict(list)
     for r in rows:
@@ -424,7 +512,7 @@ def main():
                 start_items.append({"key": k, "count": c, "share": round(cnt / n, 2)})
             # готовые варианты стартового закупа (целые наборы, как их брали в играх)
             start_variants = []
-            for combo, gs in sorted(start_sets.items(), key=lambda kv: -len(kv[1]))[:4]:
+            for combo, gs in sorted(start_sets.items(), key=lambda kv: -len(kv[1]))[:2]:
                 if len(gs) < 2 and start_variants:
                     break
                 won = sum(1 for g in gs if (g["player_slot"] < 128) == g["radiant_win"])
@@ -438,67 +526,24 @@ def main():
                     "players": players,
                 })
                 used_items.update(i["key"] for i in its)
-            freq = Counter(k for fb in first_buy for k in fb)
-            times = defaultdict(list)
-            for fb in first_buy:
-                for k, t in fb.items():
-                    times[k].append(t)
-            item_stats = []
-            for k, c in freq.items():
-                won = sum(1 for g, fb in zip(games, first_buy)
-                          if k in fb and (g["player_slot"] < 128) == g["radiant_win"])
-                item_stats.append({"key": k, "share": round(c / n, 2), "time": median(times[k]),
-                                   "wr": round(won / c, 2), "n": c})
+            item_stats = item_table(games, first_buy)
             core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])
             situational = sorted([i for i in item_stats if 0.12 <= i["share"] < 0.4],
                                  key=lambda i: -i["share"])[:10]
-            standard = {i["key"] for i in core + situational}
+            add_alternatives(core, item_stats, first_buy)
+            standard = {i["key"] for i in core + situational} | {c["alt"]["key"] for c in core if c.get("alt")}
             used_items.update(i["key"] for i in start_items + core + situational)
-
-            # --- показательные про-игры
-            pro_games = []
-            for g, fb in sorted(zip(games, first_buy), key=lambda x: -x[0]["start_time"]):
-                radiant = g["player_slot"] < 128
-                adv = pg_array(g["gold_adv"]) or []
-                team_adv = [a if radiant else -a for a in adv]
-                early = team_adv[:STOMP_MINUTE + 1]
-                stomp = (early and max(early) >= STOMP_ADV) or (
-                    med_gpm and g["gold_per_min"] and g["gold_per_min"] >= med_gpm * STOMP_GPM_RATIO)
-                hard = bool(early) and min(early) <= HARD_ADV
-                build = []
-                for k, t in sorted(fb.items(), key=lambda kv: kv[1]):
-                    minute = max(0, t // 60)
-                    a = team_adv[minute] if minute < len(team_adv) else (team_adv[-1] if team_adv else None)
-                    odd = k not in standard
-                    why = None
-                    if odd:
-                        enemies = [e["hero_id"] for e in matches[g["match_id"]]
-                                   if (e["player_slot"] < 128) != radiant]
-                        why = reasons.explain(k, t, team_adv, enemies,
-                                              {e: fb_all.get((g["match_id"], e), {}) for e in enemies},
-                                              heroes, lifts, item_names, components, g["duration"])
-                    build.append({"key": k, "time": t, "adv": a, "odd": odd, "why": why})
-                used_items.update(fb)
-                pro_games.append({
-                    "match": g["match_id"], "player": g["pro_name"] or "аноним",
-                    "src": g.get("src", "pro"), "rank": g.get("rank"),
-                    "league": g["league"], "date": g["start_time"], "dur": g["duration"],
-                    "win": radiant == g["radiant_win"], "k": g["kills"], "d": g["deaths"],
-                    "a": g["assists"], "gpm": g["gold_per_min"],
-                    "maxAdv": max(team_adv) if team_adv else None,
-                    "minAdv": min(team_adv) if team_adv else None,
-                    "flag": "stomp" if stomp else ("hard" if hard else None),
-                    "items": build,
-                })
-            named = [p for p in pro_games if p["player"] != "аноним"] or pro_games
-            pro_games = ([p for p in named if p["src"] == "pro"] + [p for p in named if p["src"] == "pub"])[:12]
+            used_items.update(c["alt"]["key"] for c in core if c.get("alt"))
+            pro_only = [(g, fb) for g, fb in zip(games, first_buy) if g.get("src", "pro") == "pro"]
+            pro_games = game_cards([g for g, _ in pro_only], [fb for _, fb in pro_only], standard, med_gpm)
+            pub_games = pub_cards(hid, pos, standard)
 
             positions[pos] = {
                 "games": n, "wr": round(wins / n, 2), "gpm": med_gpm,
                 "pubGames": sum(1 for g in games if g.get("src") == "pub"),
                 "skills": skill_seq, "skillsExact": skill_exact,
                 "talents": talents, "start": start_items, "startSets": start_variants, "core": core,
-                "situational": situational, "pro": pro_games,
+                "situational": situational, "pro": pro_games, "pubs": pub_games,
             }
         if use_stratz:
             imm = imm_all.get(hid, {})
@@ -510,7 +555,8 @@ def main():
                                       "talents": [{"level": [10, 15, 20, 25][l - 1], "sample": 0,
                                                    "options": [{"name": t, "pick": 0} for t, tl in talent_levels.items() if tl == l]}
                                                   for l in (1, 2, 3, 4)],
-                                      "start": [], "core": [], "situational": [], "pro": []}
+                                      "start": [], "core": [], "situational": [], "pro": [],
+                                      "pubs": pub_cards(hid, pos, set())}
                 positions[pos]["imm"] = st
             if imm:
                 print(f"  {h['localized_name']}: Immortal {', '.join(f'pos{p}={imm[p]["games"]}' for p in sorted(imm))}")

@@ -5,6 +5,7 @@ const MIN_SAMPLE = 8;
 // номер очка → уровень героя (на 17, 19, 21–24 очков навыков нет)
 const PT_LEVEL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 25];
 let DB = null;
+const HERO_BY_ID = {};
 let SRC = (() => { try { return localStorage.getItem("src") || "imm"; } catch { return "imm"; } })();
 const cache = {};
 
@@ -24,19 +25,30 @@ function talentName(key) {
 }
 
 // ---------- поиск
+const aliasCache = {};
 function aliases(h) {
+  if (aliasCache[h.id]) return aliasCache[h.id];
   const words = h.name.toLowerCase().split(/[\s\-']+/).filter(Boolean);
-  return [h.name.toLowerCase(), h.short, words.map(w => w[0]).join(""), ...words];
+  const ru = (typeof RU_NAMES !== "undefined" && RU_NAMES[h.short]) || "";
+  const ruWords = ru.split(/\s+/).filter(Boolean);
+  // русские названия из нескольких слов тоже ищутся целиком: «шадоу финд»
+  const ruPhrases = [];
+  for (let i = 0; i < ruWords.length - 1; i++) ruPhrases.push(ruWords[i] + " " + ruWords[i + 1]);
+  return aliasCache[h.id] = [h.name.toLowerCase(), h.short, h.short.replace(/_/g, " "),
+    words.map(w => w[0]).join(""), ...words, ...ruWords, ...ruPhrases];
 }
 function filterHeroes(q) {
-  q = q.trim().toLowerCase();
+  q = q.trim().toLowerCase().replace(/ё/g, "е");
   if (!q) return DB.heroes;
+  // вариант запроса, если его набрали на русской раскладке вместо английской: «шщ» → «io»
+  const qs = [q];
+  if (/[а-я]/.test(q) && typeof fromRuLayout === "function") qs.push(fromRuLayout(q));
   const exact = [], starts = [], incl = [];
   for (const h of DB.heroes) {
     const al = aliases(h);
-    if (al.some(a => a === q)) exact.push(h);
-    else if (al.some(a => a.startsWith(q))) starts.push(h);
-    else if (al.some(a => a.includes(q))) incl.push(h);
+    if (qs.some(x => al.some(a => a === x))) exact.push(h);
+    else if (qs.some(x => al.some(a => a.startsWith(x)))) starts.push(h);
+    else if (qs.some(x => x.length > 2 && al.some(a => a.includes(x)))) incl.push(h);
   }
   return [...exact, ...starts, ...incl];
 }
@@ -86,7 +98,7 @@ async function showHero(id, pos) {
         options: t.options.map(o => ({...o, pick: (it[o.name] || {}).pick || 0, wr: (it[o.name] || {}).wr}))};
     }),
   } : raw);
-  history.replaceState(null, "", `#h${id}-${pos}`);
+  history.replaceState(history.state, "", `#h${id}-${pos}`);
   $("#grid").hidden = true;
   const card = $("#card");
   card.hidden = false;
@@ -107,15 +119,34 @@ async function showHero(id, pos) {
     return bind(hero);
   }
 
-  const skills = d.skills.map((s, i) => {
-    if (s.startsWith("special_bonus")) {
-      const row = d.talents.find(t => t.options.some(o => o.name === s));
-      const right = row && row.options[0].name === s;
-      return `<div class="sk" data-tip="Талант ${row ? row.level : ""}: ${esc(talentName(s))}"><div class="tl">${right ? "▶" : "◀"}<small>${row ? row.level : ""}</small></div>${PT_LEVEL[i]}</div>`;
-    }
+  // Способности — по своим уровням, таланты — узкими метками на 10/15/20/25 (без номера в строке)
+  const abil = d.skills.filter(s => !s.startsWith("special_bonus"));
+  const chosen = {};
+  d.skills.filter(s => s.startsWith("special_bonus")).forEach(s => {
+    const row = d.talents.find(t => t.options.some(o => o.name === s));
+    if (row) chosen[row.level] = s;
+  });
+  d.talents.forEach(t => {
+    if (!chosen[t.level] && t.sample) chosen[t.level] = [...t.options].sort((a, b) => b.pick - a.pick)[0].name;
+  });
+  const ABIL_LV = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 16, 18];
+  const cells = [];
+  const marker = lv => {
+    const s = chosen[lv];
+    if (!s) return;
+    const row = d.talents.find(t => t.level === lv);
+    const right = row && row.options[0].name === s;
+    cells.push(`<div class="tmark" data-tip="Талант ${lv}: ${esc(talentName(s))}">${right ? "▶" : "◀"}<small>${lv}</small></div>`);
+  };
+  abil.slice(0, ABIL_LV.length).forEach((s, i) => {
+    const lv = ABIL_LV[i];
+    if (lv === 11) marker(10);
+    if (lv === 16) marker(15);
     const a = DB.abilities[s] || {name: s};
-    return `<div class="sk" data-tip="${esc(a.name)} — ${PT_LEVEL[i]} уровень">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${PT_LEVEL[i]}</div>`;
-  }).join("");
+    cells.push(`<div class="sk" data-tip="${esc(a.name)} — ${lv} уровень">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${lv}</div>`);
+  });
+  if (abil.length >= 15) { marker(20); marker(25); }
+  const skills = cells.join("");
 
   const talents = [...d.talents].reverse().map(t => {
     const [R, L] = t.options; // в игре первый талант уровня — справа
@@ -137,20 +168,30 @@ async function showHero(id, pos) {
       <div class="vm">${meta}</div>${players && players.length ? `<div class="vp">Брали: ${players.map(esc).join(", ")}</div>` : ""}</div>`;
   const cost = its => its.reduce((s, i) => s + ((DB.items[i.key] || {}).cost || 0) * i.count, 0);
   const sets = (raw.startSets || []);
-  let variants = sets.map((v, i) => setCard(`Вариант ${i + 1}`, v.items,
-    `<b>${v.games}</b> из ${raw.games} про-игр (${pct(v.share)}) · винрейт <b>${pct(v.wr)}</b> · ≈${v.cost} золота`, v.players)).join("");
+  const setMeta = v => `<b>${v.games}</b> из ${raw.games} игр (${pct(v.share)}) · винрейт <b>${pct(v.wr)}</b> · ≈${v.cost} золота`;
+  let variants;
   if (useImm && raw.imm.startSet && raw.imm.startSet.length) {
-    variants = setCard("Типичный набор Divine/Immortal", raw.imm.startSet,
-      `собран из предметов, которые берут больше чем в половине из ${raw.imm.games.toLocaleString("ru-RU")} игр · ≈${cost(raw.imm.startSet)} золота`, null, "imm") + variants;
+    variants = setCard("Основной закуп", raw.imm.startSet,
+      `то, что берут больше чем в половине из ${raw.imm.games.toLocaleString("ru-RU")} игр Divine/Immortal · ≈${cost(raw.imm.startSet)} золота`, null, "main")
+      + (sets[0] ? setCard("Ситуативный — как берут про-игроки", sets[0].items, setMeta(sets[0]), sets[0].players) : "");
+  } else {
+    variants = sets.slice(0, 2).map((v, i) => setCard(i ? "Ситуативный" : "Основной закуп", v.items, setMeta(v), v.players, i ? "" : "main")).join("");
   }
   const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт с ним ${pct(c.wr)}">
       <div class="pic">${icon(c.key)}<span class="step">${i + 1}</span></div>
-      <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр</div></div>`).join("");
+      <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр</div>
+      ${c.alt ? `<div class="alt" data-tip="Вместо ${nm(c.key)} в этом месте берут ${nm(c.alt.key)}: ${pct(c.alt.share)} игр, ~${mmss(c.alt.time)}, винрейт ${pct(c.alt.wr)}. Вместе их почти не покупают — выбирай по игре">
+        <span>или</span><div class="pic">${icon(c.alt.key)}</div><div class="nm">${nm(c.alt.key)}</div><div class="sub">${pct(c.alt.share)} игр</div></div>` : ""}</div>`).join("");
   const sit = d.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт ${pct(c.wr)} (${c.n} игр)">
       <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин</div></div>`).join("");
 
   const th = DB.meta.thresholds;
-  const games = d.pro.map(g => {
+  const list = useImm ? (raw.pubs || []) : (raw.pro || []);
+  const heroIcon = id => {
+    const h = HERO_BY_ID[id];
+    return h ? `<img class="hi" loading="lazy" src="${h.img}" alt="" data-tip="${esc(h.name)}">` : "";
+  };
+  const games = list.map(g => {
     let badge = "";
     if (g.flag === "stomp") badge = `<span class="badge stomp" data-tip="Перевес команды до ${k(g.maxAdv)} или GPM сильно выше обычного. Билд мог быть «жадным» — повторять только при таком же ходе игры">Игра шла очень хорошо · ${k(g.maxAdv)}</span>`;
     if (g.flag === "hard") badge = `<span class="badge hard" data-tip="Команда отставала до ${k(g.minAdv)}. Билд мог быть оборонительным">Тяжёлая игра · ${k(g.minAdv)}</span>`;
@@ -164,7 +205,7 @@ async function showHero(id, pos) {
     const whys = g.items.filter(i => i.odd && i.why).map(i => `<div class="why"><b>${esc((DB.items[i.key] || {}).name || i.key)}</b> <span class="t">на ${mmss(i.time)}</span> — ${esc(i.why)}</div>`).join("");
     const chip = (label, val, tip) => `<span class="chip" ${tip ? `data-tip="${tip}"` : ""}>${label ? `<i>${label}</i>` : ""}${val}</span>`;
     return `<div class="game"><div class="ghead">
-      <span class="pl">${esc(g.player)}</span>${g.src === "pub" ? `<span class="pub" data-tip="Рейтинговая игра Immortal${g.rank ? ", ранг " + g.rank : ""} — добавлена, потому что про-игр на этой позиции мало">паб Immortal</span>` : ""}
+      <span class="pl">${esc(g.player)}</span>${g.src === "pub" ? `<span class="pub" data-tip="Рейтинговая игра Immortal${g.rank ? ", ранг " + g.rank : ""}">паб Immortal</span>` : ""}
       <span class="res ${g.win ? "w" : "l"}">${g.win ? "Победа" : "Поражение"}</span>
       ${badge}
       <span class="links"><a href="https://www.opendota.com/matches/${g.match}" target="_blank" rel="noopener">OpenDota</a>
@@ -176,7 +217,11 @@ async function showHero(id, pos) {
       ${chip("Длительность", `<b>${mmss(g.dur)}</b>`)}
       ${chip("", `${esc(g.league || "")} · ${ago(g.date)}`)}
     </div>
-    <div class="phases">${phases}</div>${whys ? `<div class="whys">${whys}</div>` : ""}</div>`;
+    <div class="gbody"><div class="phases">${phases}</div>
+      ${g.enemies && g.enemies.length ? `<div class="teams">
+        <div class="team"><span>С кем</span><div>${(g.allies || []).map(heroIcon).join("")}</div></div>
+        <div class="team vs"><span>Против</span><div>${g.enemies.map(heroIcon).join("")}</div></div></div>` : ""}
+    </div>${whys ? `<div class="whys">${whys}</div>` : ""}</div>`;
   }).join("");
 
   const maxOrder = useImm && raw.imm.maxOrder.length ? `<h2>Что качать в первую очередь (Immortal)</h2><div class="maxo">${raw.imm.maxOrder.map((m, i) => {
@@ -194,9 +239,9 @@ async function showHero(id, pos) {
     <div class="items">${start || '<span class="stats">—</span>'}</div>
     <h2>Основной билд — по порядку покупки${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
     <h2>Ситуативные предметы — по популярности${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
-    <h2>Про-игры${d.pubGames ? " и Immortal-пабы" : ""}</h2>
+    <h2>${useImm ? "Игры Immortal-пабов" : "Про-игры"}</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда, под игрой написано почему · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
-    <div class="pro">${games}</div>`;
+    <div class="pro">${games || `<div class="stats">${useImm ? "Пабов на этой позиции пока нет — они докачиваются каждую ночь. Переключись на «Про-матчи»." : "Про-игр на этой позиции нет. Переключись на «Divine/Immortal пабы»."}</div>`}</div>`;
   bind(hero);
   window.scrollTo(0, 0);
 }
@@ -212,7 +257,19 @@ function bind(hero) {
     const m = location.hash.match(/^#h(\d+)-(\d)$/);
     showHero(hero.id, m ? +m[2] : null);
   });
-  $("#card .back").onclick = () => { location.hash = ""; route(); $("#q").focus(); $("#q").select(); };
+  $("#card .back").onclick = goGrid;
+}
+
+// Навигация через историю браузера: «назад» (в т.ч. кнопка мыши 4) возвращает на предыдущую страницу
+function openHero(id) {
+  history.pushState({app: 1}, "", `#h${id}`);
+  showHero(id);
+}
+function goGrid() {
+  if (history.state && history.state.app) history.back();
+  else { history.replaceState(null, "", location.pathname + location.search); route(); }
+  $("#q").focus();
+  $("#q").select();
 }
 
 function route() {
@@ -255,23 +312,27 @@ document.addEventListener("click", e => {
 // ---------- старт
 (async () => {
   DB = await (await fetch("data/index.json", {cache: "no-cache"})).json();
+  DB.heroes.forEach(h => HERO_BY_ID[h.id] = h);
   const m = DB.meta;
   $("#meta").innerHTML = `Патч ${esc(m.patch)} · ${m.matches} про-матчей за ${m.days} дн.${m.stratz ? " + Immortal (STRATZ)" : ""}<br>обновлено ${new Date(m.updated * 1000).toLocaleString("ru-RU")}`;
-  $("#q").addEventListener("input", () => { if (!$("#grid").hidden) renderGrid(); else { location.hash = ""; route(); } });
+  $("#q").addEventListener("input", () => {
+    if ($("#grid").hidden) history.replaceState(null, "", location.pathname + location.search);
+    route();
+  });
   $("#q").addEventListener("keydown", e => {
     if (e.key === "Enter") {
       const h = filterHeroes($("#q").value).find(h => Object.keys(h.positions).length) || filterHeroes($("#q").value)[0];
-      if (h) showHero(h.id);
+      if (h) openHero(h.id);
     }
   });
   $("#grid").addEventListener("click", e => {
     const el = e.target.closest(".hero");
-    if (el) showHero(+el.dataset.id);
+    if (el) openHero(+el.dataset.id);
   });
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape") { location.hash = ""; route(); $("#q").focus(); $("#q").select(); }
+    if (e.key === "Escape" && !$("#card").hidden) goGrid();
     else if (e.key === "/" && document.activeElement !== $("#q")) { e.preventDefault(); $("#q").focus(); $("#q").select(); }
   });
-  window.addEventListener("hashchange", route);
+  window.addEventListener("popstate", route);
   route();
 })();

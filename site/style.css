@@ -133,3 +133,23 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)
 .gi.odd .gt{background:rgba(230,162,60,.2);color:var(--warn)}
 
 .pub{font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(216,180,90,.15);color:var(--gold);border:1px solid rgba(216,180,90,.45)}
+
+.tmark{width:22px;height:40px;margin:0 1px;border-radius:4px;background:var(--gold);color:#111;font-weight:800;font-size:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;align-self:flex-start}
+.tmark small{font-size:9px}
+.ic.core{position:relative}
+.alt{margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)}
+.alt>span{display:block;font-size:10px;color:var(--warn);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.alt .pic img{width:44px;height:32px;opacity:.9}
+.alt .pic{width:44px}
+.alt .nm{font-size:10px;color:var(--dim)}
+.variant.main{border-color:rgba(76,175,106,.6)}
+.variant.main .vt{color:var(--good)}
+.gbody{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.teams{display:grid;gap:6px;margin-left:auto}
+.team{display:flex;align-items:center;gap:8px}
+.team>span{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--good);width:48px;text-align:right}
+.team.vs>span{color:var(--bad)}
+.team>div{display:flex;gap:3px}
+.hi{width:46px;height:26px;object-fit:cover;border-radius:3px;border:1px solid var(--line)}
+.team.vs .hi{border-color:rgba(217,83,79,.5)}
+@media (max-width:600px){.teams{margin-left:0}.hi{width:38px;height:22px}}
