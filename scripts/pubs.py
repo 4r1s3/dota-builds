@@ -98,24 +98,29 @@ def fetch(wanted, item_ids, budget=450):
     if fails >= 5:
         print("  ! пабы: подборка матчей STRATZ недоступна, пропускаю", file=sys.stderr)
     print(f"  пабы: {len(wanted)} позиций, новых матчей к загрузке {len(need)}, в кеше {len(cache)}")
-    step = 5
-    i = 0
-    fails = 0
-    while i < len(need) and calls < budget and fails < 6:
-        batch = need[i:i + step]
+    i = fails = 0
+    retry = []
+    while calls < budget and fails < 6:
+        # если пачка упала из-за одного «битого» матча — перезапрашиваем её по одному, потом снова пачками
+        if retry:
+            batch, is_retry = [retry.pop(0)], True
+        elif i < len(need):
+            batch, is_retry = need[i:i + 5], False
+            i += len(batch)
+        else:
+            break
         d = stratz.gql(match_query(batch), {}, token, tries=1)
         calls += 1
-        fails = 0 if d else fails + 1
         time.sleep(1.2)
         if d:
+            fails = 0
             for m in d.values():
                 if m:
                     cache[str(m["id"])] = {"start": m.get("startDateTime"), "m": m}
-            i += step
-        elif step > 1:
-            step = 1  # STRATZ может требовать по одному матчу за раз
-        else:
-            i += 1
+        elif not is_retry and len(batch) > 1:
+            retry.extend(batch)
+        elif not is_retry:
+            fails += 1
     _save(cache)
     rows = []
     for v in cache.values():
