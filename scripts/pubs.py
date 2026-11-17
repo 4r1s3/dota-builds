@@ -17,7 +17,7 @@ MIN_RANK = 80  # 80+ = Immortal (≈7k+ MMR)
 MAX_AGE = 21 * 86400
 
 GUIDE_Q = """query($h: Short!, $p: MatchPlayerPositionType!) {
-  heroStats { guide(heroId: $h, positionId: $p, take: 12) { guides { matchId } } } }"""
+  heroStats { guide(heroId: $h, positionId: $p) { guides { matchId } } } }"""
 MATCH_Q = """query($ids: [Long]!) { matches(ids: $ids) {
   id startDateTime durationSeconds didRadiantWin rank averageRank radiantNetworthLeads
   players { heroId isRadiant position kills deaths assists goldPerMinute networth
@@ -76,25 +76,30 @@ def fetch(wanted, item_ids, budget=400):
     if not token or not wanted:
         return []
     cache = _load()
-    calls = 0
+    calls = fails = 0
     need = set()
     for hid, pos in wanted:
-        if calls >= budget:
+        if calls >= budget or fails >= 5:
             break
-        d = stratz.gql(GUIDE_Q, {"h": hid, "p": f"POSITION_{pos}"}, token, tries=2)
+        d = stratz.gql(GUIDE_Q, {"h": hid, "p": f"POSITION_{pos}"}, token, tries=1)
         calls += 1
+        fails = 0 if d else fails + 1
         time.sleep(1.0)
         for g in ((((d or {}).get("heroStats") or {}).get("guide") or [{}])[0] or {}).get("guides") or []:
             if str(g["matchId"]) not in cache:
                 need.add(g["matchId"])
     need = sorted(need)
+    if fails >= 5:
+        print("  ! пабы: подборка матчей STRATZ недоступна, пропускаю", file=sys.stderr)
     print(f"  пабы: {len(wanted)} позиций, новых матчей к загрузке {len(need)}, в кеше {len(cache)}")
     step = 5
     i = 0
-    while i < len(need) and calls < budget:
+    fails = 0
+    while i < len(need) and calls < budget and fails < 6:
         batch = need[i:i + step]
-        d = stratz.gql(MATCH_Q, {"ids": batch}, token, tries=2)
+        d = stratz.gql(MATCH_Q, {"ids": batch}, token, tries=1)
         calls += 1
+        fails = 0 if d else fails + 1
         time.sleep(1.2)
         if d and d.get("matches"):
             for m in d["matches"]:
