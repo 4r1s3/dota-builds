@@ -180,3 +180,5 @@ b.g{color:var(--good)!important} b.r{color:var(--bad)!important}
 .ghero small{color:var(--gold);font-weight:600}
 .hb{width:58px;height:33px;object-fit:cover;border-radius:4px;border:1px solid var(--line)}
 @media (max-width:600px){.nav a{padding:5px 6px;font-size:12px}}
+
+.tmark.late{background:transparent;border:2px dashed var(--gold);color:var(--gold)}

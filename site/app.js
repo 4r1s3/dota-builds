@@ -122,34 +122,23 @@ async function showHero(id, pos) {
     return bind(hero);
   }
 
-  // Способности — по своим уровням, таланты — узкими метками на 10/15/20/25 (без номера в строке)
-  const abil = d.skills.filter(s => !s.startsWith("special_bonus"));
-  const chosen = {};
-  d.skills.filter(s => s.startsWith("special_bonus")).forEach(s => {
-    const row = d.talents.find(t => t.options.some(o => o.name === s));
-    if (row) chosen[row.level] = s;
-  });
-  d.talents.forEach(t => {
-    if (!chosen[t.level] && t.sample) chosen[t.level] = [...t.options].sort((a, b) => b.pick - a.pick)[0].name;
-  });
-  // уровни, на которых качают способности (10-й даёт ещё и талант, 15/20/25 — только талант)
-  const ABIL_LV = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18];
+  // Каждое очко подписано уровнем героя, на котором его получили (на 10-м два очка, на 16–17 нет).
+  // Таланты — узкие метки на том месте, где их реально взяли, без своего номера в строке.
   const cells = [];
-  const marker = lv => {
-    const s = chosen[lv];
-    if (!s) return;
-    const row = d.talents.find(t => t.level === lv);
-    const right = row && row.options[0].name === s;
-    cells.push(`<div class="tmark" data-tip="Талант ${lv}: ${esc(talentName(s))}${lv === 10 ? "\nНа 10 уровне дают 2 очка — способность и талант сразу" : ""}">${right ? "▶" : "◀"}<small>${lv}</small></div>`);
-  };
-  abil.slice(0, ABIL_LV.length).forEach((s, i) => {
-    const lv = ABIL_LV[i];
-    if (lv === 11) marker(10);
-    if (lv === 18) marker(15);
+  d.skills.slice(0, PT_LEVEL.length).forEach((s, i) => {
+    const lv = PT_LEVEL[i];
+    if (s.startsWith("special_bonus")) {
+      const row = d.talents.find(t => t.options.some(o => o.name === s));
+      const tier = row ? row.level : lv;
+      const right = row && row.options[0].name === s;
+      const late = row && lv > tier ? `\nВзят на ${lv} уровне вместо ${tier}-го — очко на ${tier}-м ушло в способность` : "";
+      cells.push(`<div class="tmark ${late ? "late" : ""}" data-tip="Талант ${tier}: ${esc(talentName(s))}${lv === 10 ? "\nНа 10 уровне дают 2 очка — способность и талант" : ""}${late}">${right ? "▶" : "◀"}<small>${tier}</small></div>`);
+      return;
+    }
     const a = DB.abilities[s] || {name: s};
-    cells.push(`<div class="sk" data-tip="${esc(a.name)} — ${lv} уровень">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${lv}</div>`);
+    const twice = lv === 10 && PT_LEVEL[i - 1] === 10 || lv === 10 && PT_LEVEL[i + 1] === 10 && d.skills[i + 1] && !d.skills[i + 1].startsWith("special_bonus");
+    cells.push(`<div class="sk" data-tip="${esc(a.name)} — ${lv} уровень${lv === 10 ? " (на 10-м дают 2 очка)" : ""}">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${lv}</div>`);
   });
-  if (abil.length >= 15) { marker(20); marker(25); }
   const skills = cells.join("");
 
   const talents = [...d.talents].reverse().map(t => {

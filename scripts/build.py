@@ -198,10 +198,15 @@ def greedy_sequence(seqs, length, talent_levels):
         g = gate.get((a, 1), 99)  # талант не из справочника — уровень по самому раннему очку
         return 1 if g < 14 else 2 if g < 17 else 3 if g < 18 else 4
 
+    # самое раннее очко (индекс с 0), на котором доступен талант: 10-й ур. — 10-е очко, 15-й — 16-е, 20-й — 18-е, 25-й — 19-е
+    tier_min = {1: 9, 2: 15, 3: 17, 4: 18}
+
     def ok(a, idx):
         if have[a] >= cap[a] or gate.get((a, have[a] + 1), 99) > idx:
             return False
         tier = tier_of(a)
+        if tier and idx < tier_min[tier]:
+            return False
         return not (tier and tier in tiers)
 
     for idx in range(length):
