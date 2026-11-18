@@ -465,7 +465,7 @@ def main():
                 continue
             groups[(r["hero_id"], r["pos"])].append(r)
 
-    standards, med_gpms = {}, {}
+    standards, med_gpms, hero_item_share, hero_tl = {}, {}, {}, {}
     hero_index = []
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "heroes").mkdir(exist_ok=True)
@@ -478,6 +478,7 @@ def main():
         hname = h["name"]
         habil = hero_abilities.get(hname, {})
         talent_levels = {t["name"]: t["level"] for t in habil.get("talents", [])}
+        hero_tl[hid] = talent_levels
         positions = {}
         for pos in (1, 2, 3, 4, 5):
             games = groups.get((hid, pos), [])
@@ -572,6 +573,7 @@ def main():
                 })
                 used_items.update(i["key"] for i in its + after_items)
             item_stats = item_table(games, first_buy)
+            hero_item_share[(hid, pos)] = {i["key"]: i["share"] for i in item_stats}
             core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])
             situational = sorted([i for i in item_stats if 0.12 <= i["share"] < 0.4],
                                  key=lambda i: -i["share"])[:10]
@@ -618,11 +620,78 @@ def main():
             "imm": {p: positions[p]["imm"]["games"] for p in positions if "imm" in positions[p]},
         })
 
+    def skill_seq_of(g, tl):
+        seq = []
+        for aid in pg_array(g["abilities"]):
+            nm = ab_name(aid)
+            if not nm or nm == "special_bonus_attributes":
+                continue
+            if nm.startswith("special_bonus") or nm in abilities:
+                if nm.endswith("_break") and nm[:-6] in abilities:
+                    nm = nm[:-6]
+                seq.append(nm)
+        return seq
+
+    def player_hero_build(hid_, pgs, pfs):
+        """Как конкретный игрок играет конкретного героя: прокачка, закуп, его особенности."""
+        n_ = len(pgs)
+        if not n_:
+            return None
+        tl = hero_tl.get(hid_, {})
+        seqs = [skill_seq_of(g, tl) for g in pgs]
+        seq, _ = greedy_sequence(seqs, 19, tl)
+        used_abilities.update(x for x in seq if not x.startswith("special_bonus"))
+        picks = defaultdict(Counter)
+        for sq in seqs:
+            for x in sq:
+                if tl.get(x):
+                    picks[tl[x]][x] += 1
+        talents_ = []
+        for lvl in (1, 2, 3, 4):
+            opts = [t for t, l in tl.items() if l == lvl]
+            tot = sum(picks[lvl].values()) or 1
+            talents_.append({"level": [10, 15, 20, 25][lvl - 1], "sample": sum(picks[lvl].values()),
+                             "options": [{"name": t, "pick": round(picks[lvl][t] / tot, 2)} for t in opts]})
+        pos_ = Counter(g.get("pos") for g in pgs if g.get("pos")).most_common(1)
+        pos_ = pos_[0][0] if pos_ else None
+        table = item_table(pgs, pfs)
+        core_ = sorted([i for i in table if i["share"] >= 0.4], key=lambda i: i["time"] or 0)
+        sit_ = sorted([i for i in table if 0.2 <= i["share"] < 0.4], key=lambda i: -i["share"])[:8]
+        general = hero_item_share.get((hid_, pos_), {})
+        signature = []
+        for i in table:
+            gsh = general.get(i["key"], 0)
+            if i["n"] >= 2 and i["share"] >= 0.3 and gsh < 0.15:
+                signature.append({**i, "general": gsh})
+        signature.sort(key=lambda i: -i["share"])
+        # стартовый закуп игрока на этом герое
+        sets_ = defaultdict(list)
+        for g in pgs:
+            st, af = opening(pg_array(g["purchase_log"]))
+            if st and set_cost(st) <= START_GOLD:
+                sets_[tuple(sorted(st.items()))].append(tuple(sorted(af.items())))
+        start_ = None
+        if sets_:
+            combo, afs = max(sets_.items(), key=lambda kv: len(kv[1]))
+            af_combo, af_n = Counter(afs).most_common(1)[0]
+            start_ = {"items": [{"key": k, "count": c} for k, c in combo], "games": len(afs),
+                      "cost": set_cost(dict(combo)),
+                      "after": [{"key": k, "count": c} for k, c in af_combo], "afterGames": af_n if af_combo else 0}
+            used_items.update(k for k, _ in combo)
+            used_items.update(k for k, _ in af_combo)
+        used_items.update(i["key"] for i in core_ + sit_ + signature)
+        wins_ = sum(1 for g in pgs if (g["player_slot"] < 128) == g["radiant_win"])
+        return {"games": n_, "wins": wins_, "pos": pos_, "skills": seq, "talents": talents_,
+                "core": core_, "situational": sit_, "signature": signature[:5], "start": start_,
+                "heroWr": None}
+
     # --- про-игроки: карточки и история матчей
     by_player = defaultdict(list)
     for r in rows:
         if r.get("src", "pro") == "pro" and r.get("account_id") and r.get("pro_name") and r["purchase_log"]:
             by_player[r["account_id"]].append(r)
+    import shutil
+    shutil.rmtree(OUT / "players", ignore_errors=True)  # игроки, которых больше нет в выборке, не должны оставаться
     (OUT / "players").mkdir(exist_ok=True)
     player_index = []
     for acc, gs in by_player.items():
@@ -645,11 +714,19 @@ def main():
         hs = sorted(({"id": h, "games": v[0], "wins": v[1]} for h, v in heroes_stat.items()),
                     key=lambda x: (-x["games"], -x["wins"]))
         main_pos = pos_cnt.most_common(1)[0][0] if pos_cnt else None
+        hero_builds = {}
+        by_hero = defaultdict(list)
+        for g, fb in zip(gs, fbs):
+            by_hero[g["hero_id"]].append((g, fb))
+        for hid_, lst in by_hero.items():
+            hb = player_hero_build(hid_, [g for g, _ in lst], [fb for _, fb in lst])
+            if hb:
+                hero_builds[hid_] = hb
         info = {"id": acc, "name": gs[0]["pro_name"], "team": next((g.get("team") for g in gs if g.get("team")), None),
                 "games": len(cards), "wins": wins, "pos": main_pos, "posCount": dict(pos_cnt), "heroes": hs,
                 "last": cards[0]["date"] if cards else 0}
         (OUT / "players" / f"{acc}.json").write_text(
-            json.dumps({**info, "matches": cards}, ensure_ascii=False, separators=(",", ":")))
+            json.dumps({**info, "matches": cards, "builds": hero_builds}, ensure_ascii=False, separators=(",", ":")))
         player_index.append(info)
     player_index.sort(key=lambda p: (-p["games"], p["name"].lower()))
     (OUT / "players.json").write_text(json.dumps(player_index, ensure_ascii=False, separators=(",", ":")))

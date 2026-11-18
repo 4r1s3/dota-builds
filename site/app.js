@@ -122,33 +122,8 @@ async function showHero(id, pos) {
     return bind(hero);
   }
 
-  // Каждое очко подписано уровнем героя, на котором его получили (на 10-м два очка, на 16–17 нет).
-  // Таланты — узкие метки на том месте, где их реально взяли, без своего номера в строке.
-  const cells = [];
-  d.skills.slice(0, PT_LEVEL.length).forEach((s, i) => {
-    const lv = PT_LEVEL[i];
-    if (s.startsWith("special_bonus")) {
-      const row = d.talents.find(t => t.options.some(o => o.name === s));
-      const tier = row ? row.level : lv;
-      const right = row && row.options[0].name === s;
-      const late = row && lv > tier ? `\nВзят на ${lv} уровне вместо ${tier}-го — очко на ${tier}-м ушло в способность` : "";
-      cells.push(`<div class="tmark ${late ? "late" : ""}" data-tip="Талант ${tier}: ${esc(talentName(s))}${lv === 10 ? "\nНа 10 уровне дают 2 очка — способность и талант" : ""}${late}">${right ? "▶" : "◀"}<small>${tier}</small></div>`);
-      return;
-    }
-    const a = DB.abilities[s] || {name: s};
-    const twice = lv === 10 && PT_LEVEL[i - 1] === 10 || lv === 10 && PT_LEVEL[i + 1] === 10 && d.skills[i + 1] && !d.skills[i + 1].startsWith("special_bonus");
-    cells.push(`<div class="sk" data-tip="${esc(a.name)} — ${lv} уровень${lv === 10 ? " (на 10-м дают 2 очка)" : ""}">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${lv}</div>`);
-  });
-  const skills = cells.join("");
-
-  const talents = [...d.talents].reverse().map(t => {
-    const [R, L] = t.options; // в игре первый талант уровня — справа
-    const opt = o => !o ? "<div></div>" : `<div class="topt ${t.sample && o.pick >= .5 ? "pick" : ""}">
-      <span class="pc" ${o.wr != null ? `data-tip="винрейт ${pct(o.wr)}"` : ""}>${t.sample ? pct(o.pick) : "–"}</span>${esc(talentName(o.name))}
-      <div class="bar" style="width:${o.pick * 100}%"></div></div>`;
-    return `<div class="trow">${opt(L)}<div class="lv" ${t.fromPro ? 'data-tip="По этому уровню у STRATZ нет полных данных — показаны про-матчи"' : ""}>${t.level}${t.fromPro ? "*" : ""}</div>${opt(R)}</div>`;
-  }).join("");
-
+  const skills = skillRow(d);
+  const talents = talentRows(d);
   const nm = key => esc((DB.items[key] || {}).name || key);
   const icon = key => (DB.items[key] || {}).img ? `<img loading="lazy" src="${DB.items[key].img}" alt="">` : "";
   const bar = x => `<div class="pbar"><i style="width:${Math.round(x * 100)}%"></i></div>`;
@@ -252,6 +227,40 @@ function route() {
   if ((m = h.match(/^#players(?:-(\d))?$/))) return showPlayers(m[1] ? +m[1] : 0);
   setView("heroes");
   renderGrid();
+}
+
+
+// ---------- прокачка и таланты (общие для героя и игрока)
+// Каждое очко подписано уровнем героя, на котором его получили (на 10-м два очка, на 16–17 нет).
+// Таланты — узкие метки на том месте, где их реально взяли, без своего номера в строке.
+// cmp — прокачка для сравнения: отличающиеся очки подсвечиваются.
+function skillRow(d, cmp) {
+  const cells = [];
+  d.skills.slice(0, PT_LEVEL.length).forEach((s, i) => {
+    const lv = PT_LEVEL[i];
+    if (s.startsWith("special_bonus")) {
+      const row = d.talents.find(t => t.options.some(o => o.name === s));
+      const tier = row ? row.level : lv;
+      const right = row && row.options[0].name === s;
+      const late = row && lv > tier ? `\nВзят на ${lv} уровне вместо ${tier}-го — очко на ${tier}-м ушло в способность` : "";
+      cells.push(`<div class="tmark ${late ? "late" : ""}" data-tip="Талант ${tier}: ${esc(talentName(s))}${lv === 10 ? "\nНа 10 уровне дают 2 очка — способность и талант" : ""}${late}">${right ? "▶" : "◀"}<small>${tier}</small></div>`);
+      return;
+    }
+    const a = DB.abilities[s] || {name: s};
+    const other = cmp && cmp[i] && cmp[i] !== s ? cmp[i] : null;
+    const otherName = other ? (other.startsWith("special_bonus") ? "талант" : (DB.abilities[other] || {name: other}).name) : "";
+    cells.push(`<div class="sk ${other ? "diff" : ""}" data-tip="${esc(a.name)} — ${lv} уровень${lv === 10 ? " (на 10-м дают 2 очка)" : ""}${other ? "\nОбычно на этом месте: " + esc(otherName) : ""}">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${lv}</div>`);
+  });
+  return cells.join("");
+}
+function talentRows(d) {
+  return [...d.talents].reverse().map(t => {
+    const [R, L] = t.options; // в игре первый талант уровня — справа
+    const opt = o => !o ? "<div></div>" : `<div class="topt ${t.sample && o.pick >= .5 ? "pick" : ""}">
+      <span class="pc" ${o.wr != null ? `data-tip="винрейт ${pct(o.wr)}"` : ""}>${t.sample ? pct(o.pick) : "–"}</span>${esc(talentName(o.name))}
+      <div class="bar" style="width:${o.pick * 100}%"></div></div>`;
+    return `<div class="trow">${opt(L)}<div class="lv" ${t.fromPro ? 'data-tip="По этому уровню у STRATZ нет полных данных — показаны про-матчи"' : ""}>${t.level}${t.fromPro ? "*" : ""}</div>${opt(R)}</div>`;
+  }).join("");
 }
 
 // ---------- карточка матча (общая для героя и игрока)
@@ -361,9 +370,42 @@ async function showPlayer(id, heroId) {
   const chips = [`<a class="hchip ${heroId ? "" : "on"}" href="#p${p.id}">Все герои <small>${p.games}</small></a>`]
     .concat(p.heroes.map(h => `<a class="hchip ${h.id === heroId ? "on" : ""}" href="#p${p.id}-h${h.id}">${heroIcon(h.id, "hc")}${esc((HERO_BY_ID[h.id] || {}).name || "")} <small>${h.games} · ${wr(h.wins, h.games)}</small></a>`)).join("");
   const posInfo = Object.entries(p.posCount || {}).sort((a, b) => b[1] - a[1]).map(([k2, v]) => `pos ${k2}: ${v}`).join(", ");
+  const build = heroId && p.builds ? p.builds[heroId] : null;
+  let buildHtml = "";
+  if (build) {
+    const hero = HERO_BY_ID[heroId] || {name: ""};
+    const general = await loadHero(heroId);
+    const gp = general.positions && general.positions[build.pos];
+    const nm = key => esc((DB.items[key] || {}).name || key);
+    const icon = key => (DB.items[key] || {}).img ? `<img loading="lazy" src="${DB.items[key].img}" alt="">` : "";
+    const itemCard = (i, extra = "") => `<div class="ic" data-tip="${nm(i.key)}: ${pct(i.share)} его игр${i.time != null ? ", ~" + mmss(i.time) : ""}, винрейт ${pct(i.wr)}${extra}">
+      <div class="pic">${icon(i.key)}</div><div class="nm">${nm(i.key)}</div>${i.time != null ? `<div class="when">~${Math.round(i.time / 60)} мин</div>` : ""}
+      <div class="pbar"><i style="width:${Math.round(i.share * 100)}%"></i></div><div class="sub">${pct(i.share)} игр</div></div>`;
+    const sig = build.signature.map(i => `<div class="sigrow">${icon(i.key)}<div><b>${nm(i.key)}</b>
+      <div class="stats">у него в <b>${pct(i.share)}</b> игр (${i.n}) · у остальных на pos ${build.pos} — <b>${pct(i.general)}</b> · винрейт с ним <b class="${i.wr >= .5 ? "g" : "r"}">${pct(i.wr)}</b>${i.time != null ? " · ~" + mmss(i.time) : ""}</div></div></div>`).join("");
+    const st = build.start;
+    const vrow = its => its.map(i => `<div class="vi" data-tip="${nm(i.key)}${i.count > 1 ? " ×" + i.count : ""}">${icon(i.key)}${i.count > 1 ? `<span class="cnt">×${i.count}</span>` : ""}<div class="vn">${nm(i.key)}</div></div>`).join("");
+    const heroWr = gp ? gp.wr : null;
+    buildHtml = `<div class="pbuild">
+      <h2>${esc(p.name)} на ${esc(hero.name)}${build.pos ? " · pos " + build.pos : ""}</h2>
+      <div class="stats"><b>${build.games}</b> игр · винрейт <b class="${build.wins / build.games >= .5 ? "g" : "r"}">${wr(build.wins, build.games)}</b>${heroWr != null ? ` · у всех про на этой позиции ${pct(heroWr)}` : ""}
+        · <a href="#h${heroId}${build.pos ? "-" + build.pos : ""}">общий билд героя →</a></div>
+      ${build.games < 3 ? `<div class="warn">Всего ${build.games} ${build.games === 1 ? "игра" : "игры"} — это скорее конкретные матчи, чем привычки игрока.</div>` : ""}
+      ${sig ? `<h2>Особенности игрока</h2><div class="legend">Предметы, которые он берёт заметно чаще остальных про-игроков на этом герое и позиции</div><div class="sigs">${sig}</div>` : ""}
+      <h2>Прокачка</h2>${gp && gp.skills.length ? `<div class="legend"><i class="dl"></i> — очко не так, как у большинства про-игроков (наведи, чтобы увидеть как обычно)</div>` : ""}
+      <div class="skills">${skillRow(build, gp ? gp.skills : null)}</div>
+      <h2>Таланты</h2><div class="talents">${talentRows(build)}</div>
+      ${st ? `<h2>Стартовый закуп</h2><div class="variants"><div class="variant main"><div class="vsub">До горна</div><div class="vitems">${vrow(st.items)}</div>
+        ${st.after.length ? `<div class="vsub after">Докупает в первую минуту <small>${st.afterGames} из ${st.games}</small></div><div class="vitems">${vrow(st.after)}</div>` : ""}
+        <div class="vm"><b>${st.games}</b> из ${build.games} игр · ${st.cost} из 600 золота</div></div></div>` : ""}
+      <h2>Что покупает — по порядку</h2><div class="items">${build.core.map(i => itemCard(i)).join("") || '<span class="stats">—</span>'}</div>
+      ${build.situational.length ? `<h2>Иногда</h2><div class="items">${build.situational.map(i => itemCard(i)).join("")}</div>` : ""}
+    </div>`;
+  }
   card.innerHTML = `<div class="head"><button class="back">← Назад</button>
     <div><h1>${esc(p.name)}</h1><div class="stats">${esc(p.team || "без команды")} · <b>${p.games}</b> игр · винрейт <b>${wr(p.wins, p.games)}</b>${posInfo ? " · " + posInfo : ""}</div></div></div>
     <h2>Герои</h2><div class="hchips">${chips}</div>
+    ${buildHtml}
     <h2>${heroId ? `Матчи на ${esc((HERO_BY_ID[heroId] || {}).name || "")}` : "Все матчи"} — от новых к старым <small class="stats">(${list.length})</small></h2>
     <div class="legend"><i></i> — предмет не из стандартного билда героя на этой позиции</div>
     <div class="pro">${list.map(g => gameCard(g, {showHero: true})).join("") || '<div class="empty-msg">Нет матчей</div>'}</div>`;

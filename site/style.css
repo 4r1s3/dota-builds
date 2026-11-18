@@ -186,3 +186,13 @@ b.g{color:var(--good)!important} b.r{color:var(--bad)!important}
 .vsub{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:2px 0 5px}
 .vsub.after{margin-top:10px;color:var(--gold)}
 .vsub small{text-transform:none;letter-spacing:0;color:var(--dim)}
+
+.pbuild{margin-top:6px;padding-top:4px;border-top:1px solid var(--line)}
+.pbuild a{color:var(--gold)}
+.sk.diff img{outline:2px solid var(--accent);outline-offset:1px}
+.sk.diff{color:var(--accent)}
+.legend i.dl{border-color:var(--accent)}
+.sigs{display:grid;gap:8px}
+.sigrow{display:flex;gap:10px;align-items:center;background:var(--panel2);border:1px solid rgba(216,180,90,.45);border-radius:8px;padding:8px}
+.sigrow img{width:58px;height:42px;object-fit:cover;border-radius:4px}
+.sigrow b{color:var(--text)}
