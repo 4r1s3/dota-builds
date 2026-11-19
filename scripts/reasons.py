@@ -17,7 +17,8 @@ TAGS = {
     "break": ("пассивки, которые выключает Break", {
         "bristleback", "phantom_assassin", "spectre", "huskar", "viper", "faceless_void", "slark",
         "troll_warlord", "medusa", "sniper", "tiny", "mars", "ursa", "skeleton_king", "chaos_knight",
-        "drow_ranger", "juggernaut", "life_stealer", "morphling", "luna", "antimage"}),
+        "drow_ranger", "juggernaut", "life_stealer", "morphling", "luna", "antimage",
+        "leshrac", "terrorblade", "wisp"}),
     "illusions": ("иллюзии и саммоны", {
         "phantom_lancer", "naga_siren", "terrorblade", "chaos_knight", "meepo", "arc_warden", "monkey_king",
         "broodmother", "lycan", "furion", "enigma", "beastmaster", "visage", "lone_druid", "warlock",
@@ -67,6 +68,7 @@ RULES = {
     "dust": (["invis"], ["invis"], "видеть невидимок"),
     "monkey_king_bar": (["evasion"], ["evasion"], "пробивает уклонение"),
     "bloodthorn": (["evasion", "escape", "magic"], ["evasion"], "пробивает уклонение и молчанка"),
+    "silver_edge": (["break"], [], "Break выключает пассивки и врождённые способности"),
     "nullifier": ([], ["dispellable"], "снимает защитные эффекты"),
     "diffusal_blade": (["escape"], ["dispellable"], "развеивает и замедляет"),
     "black_king_bar": (["magic", "targeted"], [], "защита от магии и контроля"),
