@@ -743,20 +743,24 @@ def main():
     print(f"Про-игроков: {len(player_index)}")
 
     # --- мета: винрейт и популярность героев на текущем патче (про + Immortal-пабы)
-    meta_stat = defaultdict(lambda: {"games": 0, "wins": 0, "pos": Counter()})
+    meta_stat = defaultdict(lambda: {"games": 0, "wins": 0, "pos": defaultdict(lambda: [0, 0])})
     all_matches = {r["match_id"] for r in rows}
     for r in rows:
         if not r.get("hero_id"):
             continue
         m_ = meta_stat[r["hero_id"]]
+        won = (r["player_slot"] < 128) == r["radiant_win"]
         m_["games"] += 1
-        m_["wins"] += (r["player_slot"] < 128) == r["radiant_win"]
+        m_["wins"] += won
         if r.get("pos"):
-            m_["pos"][r["pos"]] += 1
-    meta_list = [{"id": h, "games": v["games"], "wr": round(v["wins"] / v["games"], 3),
-                  "pick": round(v["games"] / max(1, len(all_matches)), 3), "pos": dict(v["pos"])}
+            m_["pos"][r["pos"]][0] += 1
+            m_["pos"][r["pos"]][1] += won
+    meta_list = [{"id": h, "games": v["games"], "wins": v["wins"], "wr": round(v["wins"] / v["games"], 3),
+                  "pick": round(v["games"] / max(1, len(all_matches)), 3),
+                  "pos": {p_: {"games": g_, "wins": w_} for p_, (g_, w_) in v["pos"].items()}}
                  for h, v in meta_stat.items()]
-    (OUT / "meta.json").write_text(json.dumps({"matches": len(all_matches), "heroes": meta_list},
+    (OUT / "meta.json").write_text(json.dumps({"matches": len(all_matches), "updated": int(time.time()),
+                                               "pro": pro_match_count, "heroes": meta_list},
                                               ensure_ascii=False, separators=(",", ":")))
     hn = {int(k): v["localized_name"] for k, v in heroes.items()}
     solid = sorted([x for x in meta_list if x["games"] >= 20], key=lambda x: -x["wr"])

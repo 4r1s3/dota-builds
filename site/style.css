@@ -199,3 +199,20 @@ b.g{color:var(--good)!important} b.r{color:var(--bad)!important}
 
 .patchbar{background:rgba(224,83,61,.12);border:1px solid rgba(224,83,61,.5);border-radius:8px;padding:9px 12px;margin-bottom:14px;font-size:13px;color:var(--text)}
 .patchbar b{color:var(--accent)}
+
+.mh{font-size:20px;margin:0 0 4px}
+.mtable{display:grid;gap:3px;margin-top:12px}
+.mrow{display:grid;grid-template-columns:34px minmax(150px,1.4fr) 1fr 1fr 60px;gap:10px;align-items:center;padding:5px 8px;border-radius:6px;background:var(--panel);text-decoration:none;color:var(--text);border:1px solid transparent}
+a.mrow:hover{border-color:var(--accent)}
+.mrow.mhead{background:none;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.mrow.few{opacity:.5}
+.mn{color:var(--dim);font-size:12px;text-align:right}
+.mhero{display:flex;align-items:center;gap:8px;font-weight:600}
+.mwr,.mpk{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
+.mwr b{width:48px}
+.mpk{color:var(--dim);font-size:13px}
+.wbar,.pkbar{flex:1;height:5px;background:var(--line);border-radius:3px;overflow:hidden;display:block}
+.wbar i,.pkbar i{display:block;height:100%}
+.wbar i{background:var(--good)} .pkbar i{background:var(--gold)}
+.mg{color:var(--dim);font-size:12px;text-align:right}
+@media (max-width:600px){.mrow{grid-template-columns:24px 1.3fr 1fr 44px;font-size:12px}.mpk{display:none}.mrow.mhead span:nth-child(4){display:none}}

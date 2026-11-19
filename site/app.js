@@ -226,6 +226,7 @@ function route() {
   if ((m = h.match(/^#h(\d+)(?:-(\d))?$/))) return showHero(+m[1], m[2] ? +m[2] : null);
   if ((m = h.match(/^#p(\d+)(?:-h(\d+))?$/))) return showPlayer(+m[1], m[2] ? +m[2] : null);
   if ((m = h.match(/^#players(?:-(\d))?$/))) return showPlayers(m[1] ? +m[1] : 0);
+  if ((m = h.match(/^#meta(?:-(\d))?$/))) return showMeta(m[1] ? +m[1] : 0);
   setView("heroes");
   renderGrid();
 }
@@ -414,12 +415,71 @@ async function showPlayer(id, heroId) {
   window.scrollTo(0, 0);
 }
 function setView(v) {
+  $("#metaview").hidden = v !== "meta";
   $("#grid").hidden = v !== "heroes";
   $("#found").hidden = v !== "heroes" || !$("#found").innerHTML;
   $("#players").hidden = v !== "players";
   $("#card").hidden = v !== "card";
-  const tab = v === "players" || /^#p\d/.test(location.hash) ? "players" : "heroes";
+  const tab = v === "meta" ? "meta" : v === "players" || /^#p\d/.test(location.hash) ? "players" : "heroes";
   document.querySelectorAll(".nav a").forEach(a => a.classList.toggle("on", a.dataset.nav === tab));
+}
+
+
+// ---------- мета: винрейт и популярность героев на текущем патче
+let META = null;
+let META_SORT = "power";
+// Нижняя граница доверительного интервала Уилсона: винрейт с поправкой на число игр.
+// 3 победы из 3 игр не должны стоять выше 60% на сотне игр.
+function wilson(w, n, z = 1.64) {
+  if (!n) return 0;
+  const p = w / n, d = 1 + z * z / n;
+  return (p + z * z / (2 * n) - z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
+}
+async function showMeta(pos) {
+  if (!META) {
+    const r = await fetch(`data/meta.json?v=${DB.meta.updated}`);
+    META = r.ok ? await r.json() : {heroes: [], matches: 0};
+  }
+  setView("meta");
+  const total = META.matches || 1;
+  const rows = META.heroes.map(h => {
+    const s = pos ? (h.pos[pos] || {games: 0, wins: 0}) : h;
+    return {id: h.id, games: s.games, wins: s.wins, wr: s.games ? s.wins / s.games : 0, pick: s.games / total, power: wilson(s.wins, s.games)};
+  }).filter(r => r.games > 0);
+  const sorters = {power: (a, b) => b.power - a.power, wr: (a, b) => b.wr - a.wr || b.games - a.games, pick: (a, b) => b.games - a.games};
+  rows.sort(sorters[META_SORT]);
+  const maxPick = Math.max(...rows.map(r => r.pick), 0.01);
+  const tabs = [0, 1, 2, 3, 4, 5].map(p => `<button class="tab ${p === (pos || 0) ? "on" : ""}" data-mpos="${p}">${p ? POS[p] : "Все позиции"}</button>`).join("");
+  const sortBtn = (k2, label, tip) => `<button class="sbtn ${META_SORT === k2 ? "on" : ""}" data-msort="${k2}" data-tip="${tip}">${label}</button>`;
+  const fresh = DB.meta.freshPatch;
+  $("#metaview").innerHTML = `<h1 class="mh">Мета патча ${esc(DB.meta.patch)}</h1>
+    <div class="stats">${META.matches} матчей на этом патче (${META.pro || 0} про, остальное — Immortal-пабы)${fresh ? " · патч свежий, винрейты пока сильно колеблются" : ""}</div>
+    <div class="tabs">${tabs}</div>
+    <div class="src">Сортировать:
+      ${sortBtn("power", "Сила", "Винрейт с поправкой на число игр: герой с 3 победами из 3 не обгонит героя с 60% на сотне игр")}
+      ${sortBtn("wr", "Винрейт", "Просто процент побед, без учёта числа игр")}
+      ${sortBtn("pick", "Популярность", "Как часто героя берут")}</div>
+    <div class="mtable">
+      <div class="mrow mhead"><span>#</span><span>Герой</span><span>Винрейт</span><span>Популярность</span><span>Игр</span></div>
+      ${rows.map((r, i) => {
+        const h = HERO_BY_ID[r.id] || {name: "?"};
+        const few = r.games < 30;
+        const wrCls = r.wr >= .53 ? "g" : r.wr <= .47 ? "r" : "";
+        return `<a class="mrow ${few ? "few" : ""}" href="#h${r.id}${pos ? "-" + pos : ""}" ${few ? 'data-tip="Мало игр — винрейт может быть случайным"' : ""}>
+          <span class="mn">${i + 1}</span>
+          <span class="mhero">${heroIcon(r.id, "hc")}${esc(h.name)}</span>
+          <span class="mwr"><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b><i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
+          <span class="mpk">${(r.pick * 100).toFixed(1)}%<i class="pkbar"><i style="width:${Math.round(r.pick / maxPick * 100)}%"></i></i></span>
+          <span class="mg">${r.games}</span></a>`;
+      }).join("") || '<div class="empty-msg">Пока нет игр</div>'}
+    </div>
+    <div class="legend">Серым — меньше 30 игр. Нажми на героя, чтобы открыть его билд${pos ? " на этой позиции" : ""}.</div>`;
+  $("#metaview").querySelectorAll("[data-mpos]").forEach(b => b.onclick = () => {
+    const p = +b.dataset.mpos;
+    history.replaceState(history.state, "", p ? `#meta-${p}` : "#meta");
+    showMeta(p);
+  });
+  $("#metaview").querySelectorAll("[data-msort]").forEach(b => b.onclick = () => { META_SORT = b.dataset.msort; showMeta(pos); });
 }
 
 // ---------- подсказки
