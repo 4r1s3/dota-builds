@@ -71,13 +71,15 @@ def explorer(sql):
     return d["rows"]
 
 
-def fetch_rows(days):
+def fetch_rows(days, min_start=0):
     now = int(time.time())
     rows = []
     chunk = 5
     for start in range(days, 0, -chunk):
-        t0 = now - start * 86400
+        t0 = max(now - start * 86400, int(min_start))  # только матчи текущего патча
         t1 = now - max(start - chunk, 0) * 86400
+        if t1 <= t0:
+            continue
         sql = f"""
         SELECT pm.match_id, pm.hero_id, pm.account_id, pm.player_slot, pm.lane_role,
                pm.kills, pm.deaths, pm.assists, pm.gold_per_min, pm.net_worth,
@@ -252,13 +254,19 @@ def main():
     patch_name = patches[-1]["name"] if patches else ""
 
     days = args.days
+    patch_ts = 0
     if patches:
         from datetime import datetime
-        pdate = datetime.fromisoformat(patches[-1]["date"].replace("Z", "+00:00")).timestamp()
-        since_patch = int((time.time() - pdate) // 86400) + 1
-        days = max(7, min(days, since_patch))
-    print(f"Про-матчи за {days} дней (патч {patch_name})…")
-    rows = fetch_rows(days)
+        patch_ts = datetime.fromisoformat(patches[-1]["date"].replace("Z", "+00:00")).timestamp()
+        since_patch = int((time.time() - patch_ts) // 86400) + 1
+        days = min(days, since_patch)
+    patch_age = (time.time() - patch_ts) / 86400 if patch_ts else 999
+    # недельная статистика STRATZ первые дни после патча смешана со старым патчем
+    fresh_patch = patch_age < 8
+    print(f"Про-матчи за {days} дн., только патч {patch_name} (вышел {patch_age:.1f} дн. назад)…")
+    rows = fetch_rows(days, patch_ts)
+    pro_match_count = len({r["match_id"] for r in rows})
+    few_pro = pro_match_count < 60  # про-матчей на новом патче мало — строим статистику на Immortal-пабах
 
     # группировка по матчам для определения позиций
     matches = defaultdict(list)
@@ -322,10 +330,10 @@ def main():
             for pos, v in imm.items():
                 if v["games"] / tot >= 0.1:
                     (wanted if pro_cnt[(hid, pos)] < PUB_MIN else popular).append((hid, pos))
-        want = set(wanted)
+        want = set(wanted) | (set(popular) if few_pro else set())
         try:
             # сначала позиции, где про-игр мало, потом остальные популярные (для списка пабов)
-            pub_rows = pubs.fetch(wanted + popular, item_ids)
+            pub_rows = pubs.fetch(wanted + popular, item_ids, min_start=patch_ts)
         except Exception as e:  # noqa: BLE001
             print(f"  ! пабы не загрузились: {e}", file=sys.stderr)
             pub_rows = []
@@ -606,7 +614,8 @@ def main():
                                                   for l in (1, 2, 3, 4)],
                                       "start": [], "core": [], "situational": [], "pro": [],
                                       "pubs": pub_cards(hid, pos, set())}
-                positions[pos]["imm"] = st
+                if not fresh_patch:
+                    positions[pos]["imm"] = st
             if imm:
                 print(f"  {h['localized_name']}: Immortal {', '.join(f'pos{p}={imm[p]["games"]}' for p in sorted(imm))}")
         if positions:
@@ -618,6 +627,7 @@ def main():
             "roles": h.get("roles", []),
             "positions": {p: positions[p]["games"] for p in positions},
             "imm": {p: positions[p]["imm"]["games"] for p in positions if "imm" in positions[p]},
+            "pubs": {p: positions[p].get("pubGames", 0) for p in positions},
         })
 
     def skill_seq_of(g, tl):
@@ -732,6 +742,29 @@ def main():
     (OUT / "players.json").write_text(json.dumps(player_index, ensure_ascii=False, separators=(",", ":")))
     print(f"Про-игроков: {len(player_index)}")
 
+    # --- мета: винрейт и популярность героев на текущем патче (про + Immortal-пабы)
+    meta_stat = defaultdict(lambda: {"games": 0, "wins": 0, "pos": Counter()})
+    all_matches = {r["match_id"] for r in rows}
+    for r in rows:
+        if not r.get("hero_id"):
+            continue
+        m_ = meta_stat[r["hero_id"]]
+        m_["games"] += 1
+        m_["wins"] += (r["player_slot"] < 128) == r["radiant_win"]
+        if r.get("pos"):
+            m_["pos"][r["pos"]] += 1
+    meta_list = [{"id": h, "games": v["games"], "wr": round(v["wins"] / v["games"], 3),
+                  "pick": round(v["games"] / max(1, len(all_matches)), 3), "pos": dict(v["pos"])}
+                 for h, v in meta_stat.items()]
+    (OUT / "meta.json").write_text(json.dumps({"matches": len(all_matches), "heroes": meta_list},
+                                              ensure_ascii=False, separators=(",", ":")))
+    hn = {int(k): v["localized_name"] for k, v in heroes.items()}
+    solid = sorted([x for x in meta_list if x["games"] >= 20], key=lambda x: -x["wr"])
+    print(f"МЕТА: {len(all_matches)} матчей")
+    print("МЕТА винрейт:", "; ".join(f"{hn.get(x['id'])} {x['wr']:.0%} ({x['games']})" for x in solid[:15]))
+    print("МЕТА популярность:", "; ".join(f"{hn.get(x['id'])} {x['pick']:.0%} ({x['wr']:.0%})"
+                                         for x in sorted(meta_list, key=lambda x: -x["games"])[:15]))
+
     # словари для отображения
     item_dict = {k: {"name": items[k].get("dname", k), "img": CDN + items[k]["img"].split("?")[0],
                      "cost": items[k].get("cost")}
@@ -751,7 +784,9 @@ def main():
 
     meta = {
         "updated": int(time.time()), "days": days, "patch": patch_name,
-        "matches": len(matches), "stratz": use_stratz,
+        "matches": len(matches), "stratz": use_stratz and not fresh_patch,
+        "patchDate": int(patch_ts), "freshPatch": fresh_patch, "proMatches": pro_match_count,
+        "pubMatches": len({r["match_id"] for r in rows if r.get("src") == "pub"}),
         "thresholds": {"stompAdv": STOMP_ADV, "stompMinute": STOMP_MINUTE,
                        "stompGpm": STOMP_GPM_RATIO, "hardAdv": HARD_ADV},
     }

@@ -158,7 +158,8 @@ async function showHero(id, pos) {
       <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин</div></div>`).join("");
 
   const th = DB.meta.thresholds;
-  const list = useImm ? (raw.pubs || []) : (raw.pro || []);
+  // на свежем патче про-игр может ещё не быть — тогда показываем Immortal-пабы
+  const list = useImm ? (raw.pubs || []) : ((raw.pro && raw.pro.length) ? raw.pro : (raw.pubs || []));
   const games = list.map(g => gameCard(g)).join("");
 
   const maxOrder = useImm && raw.imm.maxOrder.length ? `<h2>Что качать в первую очередь (Immortal)</h2><div class="maxo">${raw.imm.maxOrder.map((m, i) => {
@@ -455,6 +456,15 @@ document.addEventListener("click", e => {
   DB = await (await fetch("data/index.json", {cache: "no-cache"})).json();
   DB.heroes.forEach(h => HERO_BY_ID[h.id] = h);
   const m = DB.meta;
+  if (m.freshPatch) {
+    const d = Math.max(0, Math.floor((Date.now() / 1000 - m.patchDate) / 86400));
+    const banner = document.createElement("div");
+    banner.className = "patchbar";
+    banner.innerHTML = `<b>Новый патч ${esc(m.patch)}</b> вышел ${d === 0 ? "сегодня" : d === 1 ? "вчера" : d + " дн. назад"}.
+      Показываю только игры на нём: ${m.proMatches} про-матчей и ${m.pubMatches} Immortal-пабов. Пока данных мало, билды могут быть случайными — с каждым днём точнее.
+      Недельная статистика Divine/Immortal включится через неделю после патча.`;
+    document.querySelector("main").prepend(banner);
+  }
   $("#meta").innerHTML = `Патч ${esc(m.patch)} · ${m.matches} про-матчей за ${m.days} дн.${m.stratz ? " + Immortal (STRATZ)" : ""}<br>обновлено ${new Date(m.updated * 1000).toLocaleString("ru-RU")}`;
   loadPlayers().then(() => { if (!$("#grid").hidden) renderGrid(); });
   $("#q").addEventListener("input", () => {

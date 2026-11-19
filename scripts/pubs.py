@@ -76,7 +76,7 @@ def _rows_from_match(m, item_ids):
     return rows
 
 
-def fetch(wanted, item_ids, budget=450):
+def fetch(wanted, item_ids, budget=450, min_start=0):
     """wanted: список (hero_id, pos), где мало про-игр. Возвращает строки всех игроков найденных матчей."""
     token = os.environ.get("STRATZ_TOKEN")
     if not token or not wanted:
@@ -124,6 +124,7 @@ def fetch(wanted, item_ids, budget=450):
     _save(cache)
     rows = []
     for v in cache.values():
-        rows.extend(_rows_from_match(v["m"], item_ids))
+        if (v.get("start") or 0) >= min_start:  # только матчи текущего патча
+            rows.extend(_rows_from_match(v["m"], item_ids))
     print(f"  пабы: загружено {len(rows) // 10} матчей, запросов {calls}", file=sys.stderr)
     return rows

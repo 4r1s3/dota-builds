@@ -67,7 +67,6 @@ RULES = {
     "dust": (["invis"], ["invis"], "видеть невидимок"),
     "monkey_king_bar": (["evasion"], ["evasion"], "пробивает уклонение"),
     "bloodthorn": (["evasion", "escape", "magic"], ["evasion"], "пробивает уклонение и молчанка"),
-    "silver_edge": (["break"], [], "выключает пассивки"),
     "nullifier": ([], ["dispellable"], "снимает защитные эффекты"),
     "diffusal_blade": (["escape"], ["dispellable"], "развеивает и замедляет"),
     "black_king_bar": (["magic", "targeted"], [], "защита от магии и контроля"),
