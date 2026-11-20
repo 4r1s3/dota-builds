@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pubs  # noqa: E402
+import valve  # noqa: E402
 import reasons  # noqa: E402
 import stratz  # noqa: E402
 
@@ -806,10 +807,19 @@ def main():
     tfile = Path(__file__).with_name("talents_en.json")
     if tfile.exists():
         resolved = json.loads(tfile.read_text())
+    # самые свежие тексты — из официальных данных Valve (числа текущего патча)
+    try:
+        resolved.update(valve.talent_texts(sorted(int(h) for h in heroes)))
+        print(f"Таланты из данных Valve: {len(resolved)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! таланты Valve не загрузились: {e}", file=sys.stderr)
     talent_names = {}
     for hname, ha in hero_abilities.items():
         for t in ha.get("talents", []):
             talent_names[t["name"]] = resolved.get(t["name"]) or abilities.get(t["name"], {}).get("dname", t["name"])
+    # таланты, которых ещё нет в справочнике OpenDota (новые в патче), тоже подписываем
+    for k, v in resolved.items():
+        talent_names.setdefault(k, v)
     ab_dict = {k: {"name": abilities[k].get("dname", k),
                    "img": CDN + abilities[k]["img"] if abilities[k].get("img") else None}
                for k in used_abilities if k in abilities}
