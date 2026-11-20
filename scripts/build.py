@@ -261,6 +261,7 @@ def main():
         since_patch = int((time.time() - patch_ts) // 86400) + 1
         days = min(days, since_patch)
     patch_age = (time.time() - patch_ts) / 86400 if patch_ts else 999
+    prev_patch_name = patches[-2]["name"] if len(patches) > 1 else ""
     # недельная статистика STRATZ первые дни после патча смешана со старым патчем
     fresh_patch = patch_age < 8
     print(f"Про-матчи за {days} дн., только патч {patch_name} (вышел {patch_age:.1f} дн. назад)…")
@@ -411,7 +412,7 @@ def main():
             for k, t in sorted(fb.items(), key=lambda kv: kv[1]):
                 minute = max(0, t // 60)
                 a = team_adv[minute] if minute < len(team_adv) else (team_adv[-1] if team_adv else None)
-                odd = k not in standard_
+                odd = standard_ is not None and k not in standard_  # None — матч прошлого патча, сравнивать не с чем
                 why = None
                 if odd:
                     why = reasons.explain(k, t, team_adv, enemies,
@@ -429,6 +430,7 @@ def main():
                 "minAdv": min(team_adv) if team_adv else None,
                 "flag": "stomp" if stomp else ("hard" if hard else None),
                 "allies": allies, "enemies": enemies, "hero": g["hero_id"], "pos": g.get("pos"),
+                "oldPatch": bool(patch_ts and g["start_time"] < patch_ts),
                 "items": build,
             })
         if limit is None:
@@ -696,8 +698,26 @@ def main():
                 "heroWr": None}
 
     # --- про-игроки: карточки и история матчей
+    # История игрока — за PLAYER_DAYS дней независимо от патча (билды героев — только текущий патч)
+    PLAYER_DAYS = 30
+    hist = [r for r in fetch_rows(PLAYER_DAYS) if r["start_time"] < patch_ts] if patch_ts else []
+    hist_matches = defaultdict(list)
+    for r in hist:
+        hist_matches[r["match_id"]].append(r)
+    for mid, ps in hist_matches.items():
+        for side in (True, False):
+            team = [p for p in ps if (p["player_slot"] < 128) == side]
+            for hid_, n_ in assign_positions(team).items():
+                for p_ in team:
+                    if p_["hero_id"] == hid_:
+                        p_["pos"] = n_
+        matches[mid] = ps
+        for r in ps:
+            if r["purchase_log"]:
+                fb_all[(mid, r["hero_id"])] = first_buys_of(pg_array(r["purchase_log"]))
+    print(f"История про-игроков: +{len(hist_matches)} матчей прошлого патча")
     by_player = defaultdict(list)
-    for r in rows:
+    for r in rows + hist:
         if r.get("src", "pro") == "pro" and r.get("account_id") and r.get("pro_name") and r["purchase_log"]:
             by_player[r["account_id"]].append(r)
     import shutil
@@ -711,7 +731,8 @@ def main():
         cards = []
         for g, fb in zip(gs, fbs):
             key = (g["hero_id"], g.get("pos"))
-            cards += game_cards([g], [fb], standards.get(key, set()), med_gpms.get(key), limit=None)
+            old = patch_ts and g["start_time"] < patch_ts
+            cards += game_cards([g], [fb], None if old else standards.get(key, set()), med_gpms.get(key), limit=None)
         cards.sort(key=lambda c: -c["date"])
         heroes_stat = defaultdict(lambda: [0, 0])
         pos_cnt = Counter()
@@ -729,10 +750,17 @@ def main():
         for g, fb in zip(gs, fbs):
             by_hero[g["hero_id"]].append((g, fb))
         for hid_, lst in by_hero.items():
-            hb = player_hero_build(hid_, [g for g, _ in lst], [fb for _, fb in lst])
+            # билд игрока на герое — по текущему патчу; если там игр нет, по прошлому (с пометкой)
+            cur = [(g, fb) for g, fb in lst if not (patch_ts and g["start_time"] < patch_ts)]
+            use = cur or lst
+            hb = player_hero_build(hid_, [g for g, _ in use], [fb for _, fb in use])
+            if hb:
+                hb["oldPatch"] = not cur
+                hb["prevPatch"] = prev_patch_name
             if hb:
                 hero_builds[hid_] = hb
-        info = {"id": acc, "name": gs[0]["pro_name"], "team": next((g.get("team") for g in gs if g.get("team")), None),
+        cur_games = sum(1 for c in cards if not c.get("oldPatch"))
+        info = {"id": acc, "name": gs[0]["pro_name"], "curGames": cur_games, "team": next((g.get("team") for g in gs if g.get("team")), None),
                 "games": len(cards), "wins": wins, "pos": main_pos, "posCount": dict(pos_cnt), "heroes": hs,
                 "last": cards[0]["date"] if cards else 0}
         (OUT / "players" / f"{acc}.json").write_text(
@@ -789,7 +817,7 @@ def main():
     meta = {
         "updated": int(time.time()), "days": days, "patch": patch_name,
         "matches": len(matches), "stratz": use_stratz and not fresh_patch,
-        "patchDate": int(patch_ts), "freshPatch": fresh_patch, "proMatches": pro_match_count,
+        "patchDate": int(patch_ts), "freshPatch": fresh_patch, "prevPatch": prev_patch_name, "proMatches": pro_match_count,
         "pubMatches": len({r["match_id"] for r in rows if r.get("src") == "pub"}),
         "thresholds": {"stompAdv": STOMP_ADV, "stompMinute": STOMP_MINUTE,
                        "stompGpm": STOMP_GPM_RATIO, "hardAdv": HARD_ADV},

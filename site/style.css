@@ -216,3 +216,5 @@ a.mrow:hover{border-color:var(--accent)}
 .wbar i{background:var(--good)} .pkbar i{background:var(--gold)}
 .mg{color:var(--dim);font-size:12px;text-align:right}
 @media (max-width:600px){.mrow{grid-template-columns:24px 1.3fr 1fr 44px;font-size:12px}.mpk{display:none}.mrow.mhead span:nth-child(4){display:none}}
+
+.oldp{font-size:11px;padding:1px 7px;border-radius:10px;background:var(--panel2);color:var(--dim);border:1px dashed var(--line)}

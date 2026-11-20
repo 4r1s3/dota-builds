@@ -290,6 +290,7 @@ function gameCard(g, opts = {}) {
   return `<div class="game"><div class="ghead">
     ${who}${g.src === "pub" ? `<span class="pub" data-tip="Рейтинговая игра Immortal${g.rank ? ", ранг " + g.rank : ""}">паб Immortal</span>` : ""}
     <span class="res ${g.win ? "w" : "l"}">${g.win ? "Победа" : "Поражение"}</span>
+    ${g.oldPatch ? `<span class="oldp" data-tip="Матч сыгран на прошлом патче — билд может быть неактуален, нестандартные предметы не подсвечиваются">${esc(DB.meta.prevPatch || "прошлый патч")}</span>` : ""}
     ${badge}
     <span class="links"><a href="https://www.opendota.com/matches/${g.match}" target="_blank" rel="noopener">OpenDota</a>
     <a href="https://stratz.com/matches/${g.match}" target="_blank" rel="noopener">STRATZ</a></span>
@@ -337,7 +338,7 @@ function playerCard(p) {
   return `<div class="pcard" data-player="${p.id}">
     <div class="ptop"><div><div class="pname">${esc(p.name)}</div><div class="pteam">${esc(p.team || "без команды")}</div></div>
       <div class="ppos">${p.pos ? "Pos " + p.pos : ""}</div></div>
-    <div class="pstat"><b>${p.games}</b> игр · винрейт <b class="${p.wins / p.games >= .5 ? "g" : "r"}">${wr(p.wins, p.games)}</b> · ${ago(p.last)}</div>
+    <div class="pstat"><b>${p.games}</b> игр${p.curGames != null && p.curGames < p.games ? ` (${p.curGames} на ${esc(DB.meta.patch)})` : ""} · винрейт <b class="${p.wins / p.games >= .5 ? "g" : "r"}">${wr(p.wins, p.games)}</b> · ${ago(p.last)}</div>
     <div class="pheroes">${hs}</div></div>`;
 }
 async function showPlayers(pos) {
@@ -351,7 +352,7 @@ async function showPlayers(pos) {
   let list = q ? filterPlayers(q) : PLAYERS;
   if (pos) list = list.filter(x => x.pos === pos);
   $("#players").innerHTML = `<div class="tabs">${tabs}</div>
-    <div class="legend">Про-игроки из матчей за последние ${DB.meta.days} дн. Нажми на игрока — история матчей, на героя — матчи только на нём.</div>
+    <div class="legend">Про-игроки из матчей за последние 30 дн. (включая прошлый патч). Нажми на игрока — история матчей, на героя — матчи только на нём.</div>
     <div class="pgrid">${list.map(playerCard).join("") || '<div class="empty-msg">Никого не нашлось</div>'}</div>`;
   $("#players").querySelectorAll("[data-ppos]").forEach(b => b.onclick = () => {
     const p = +b.dataset.ppos;
@@ -392,6 +393,7 @@ async function showPlayer(id, heroId) {
       <h2>${esc(p.name)} на ${esc(hero.name)}${build.pos ? " · pos " + build.pos : ""}</h2>
       <div class="stats"><b>${build.games}</b> игр · винрейт <b class="${build.wins / build.games >= .5 ? "g" : "r"}">${wr(build.wins, build.games)}</b>${heroWr != null ? ` · у всех про на этой позиции ${pct(heroWr)}` : ""}
         · <a href="#h${heroId}${build.pos ? "-" + build.pos : ""}">общий билд героя →</a></div>
+      ${build.oldPatch ? `<div class="warn">На ${esc(DB.meta.patch)} он этого героя ещё не играл — билд по матчам патча ${esc(build.prevPatch || "")}, может быть неактуален.</div>` : ""}
       ${build.games < 3 ? `<div class="warn">Всего ${build.games} ${build.games === 1 ? "игра" : "игры"} — это скорее конкретные матчи, чем привычки игрока.</div>` : ""}
       ${sig ? `<h2>Особенности игрока</h2><div class="legend">Предметы, которые он берёт заметно чаще остальных про-игроков на этом герое и позиции</div><div class="sigs">${sig}</div>` : ""}
       <h2>Прокачка</h2>${gp && gp.skills.length ? `<div class="legend"><i class="dl"></i> — очко не так, как у большинства про-игроков (наведи, чтобы увидеть как обычно)</div>` : ""}
