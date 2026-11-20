@@ -339,7 +339,12 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"  ! пабы не загрузились: {e}", file=sys.stderr)
             pub_rows = []
-        pub_rows = [r for r in pub_rows if r["pos"] and (r.get("rank") is None or r["rank"] >= pubs.MIN_RANK)]
+        # только матчи, где Immortal весь матч (а не один игрок среди Divine)
+        before = len({r["match_id"] for r in pub_rows})
+        pub_rows = [r for r in pub_rows if r["pos"] and (
+            r["match_rank"] >= pubs.MIN_RANK if r.get("match_rank") is not None
+            else (r.get("rank") is None or r["rank"] >= pubs.MIN_RANK))]
+        print(f"  пабы: матчей Immortal целиком {len({r['match_id'] for r in pub_rows})} из {before}")
         for r in pub_rows:
             matches[r["match_id"]].append(r)
         rows.extend(pub_rows)

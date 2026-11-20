@@ -20,7 +20,7 @@ GUIDE_Q = """query($h: Short!, $p: MatchPlayerPositionType!) {
   heroStats { guide(heroId: $h, positionId: $p) { guides { matchId } } } }"""
 MATCH_FIELDS = """id startDateTime durationSeconds didRadiantWin rank averageRank radiantNetworthLeads
   players { heroId isRadiant position kills deaths assists goldPerMinute networth
-    steamAccount { name seasonRank proSteamAccount { name } }
+    steamAccount { name seasonRank seasonLeaderboardRank proSteamAccount { name } }
     abilities { abilityId time level } stats { itemPurchases { time itemId } } }"""
 
 
@@ -72,6 +72,8 @@ def _rows_from_match(m, item_ids):
             "duration": m["durationSeconds"], "gold_adv": _pg(m.get("radiantNetworthLeads") or []),
             "league": "Immortal паб", "pro_name": name, "src": "pub",
             "rank": acc.get("seasonRank") or m.get("rank"),
+            "match_rank": m.get("rank"),  # ранг всего матча: 80 = Immortal, 71–75 = Divine
+            "lb": acc.get("seasonLeaderboardRank"),
         })
     return rows
 
