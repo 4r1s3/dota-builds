@@ -58,7 +58,7 @@ def _rows_from_match(m, item_ids):
         buys = stats.get("itemPurchases") or []
         log = [{"time": b["time"], "key": item_ids.get(str(b["itemId"]))} for b in buys]
         log = [e for e in log if e["key"]]
-        abil = sorted(p.get("abilities") or [], key=lambda a: (a.get("level") or 0, a.get("time") or 0))
+        abil = sorted(p.get("abilities") or [], key=lambda a: (a.get("time") or 0, a.get("level") or 0))  # порядок прокачки — по времени
         acc = p.get("steamAccount") or {}
         name = ((acc.get("proSteamAccount") or {}).get("name")) or acc.get("name")
         rows.append({
