@@ -450,8 +450,20 @@ async function showMeta(pos) {
   const total = META.matches || 1;
   const rows = META.heroes.map(h => {
     const s = pos ? (h.pos[pos] || {games: 0, wins: 0}) : h;
-    return {id: h.id, games: s.games, wins: s.wins, wr: s.games ? s.wins / s.games : 0, pick: s.games / total, power: wilson(s.wins, s.games)};
+    return {id: h.id, games: s.games, wins: s.wins, wr: s.games ? s.wins / s.games : 0, pick: s.games / total};
   }).filter(r => r.games > 0);
+  // Сила = насколько герой выигрывает × насколько он в мете.
+  // 1) винрейт с поправкой на выборку: будто у героя есть ещё PRIOR игр с 50% — редкие герои не взлетают от случайности;
+  // 2) множитель меты 0.6…1: героя, которого почти не берут, штрафуем до 40% (нишевый пик ≠ сильный герой).
+  const PRIOR = 200;
+  const byGames = [...rows].sort((a, b) => b.games - a.games);
+  const ref = (byGames[Math.min(19, byGames.length - 1)] || {pick: 0.01}).pick || 0.01; // «обычный мета-герой» — 20-й по популярности
+  rows.forEach(r => {
+    r.wrAdj = (r.wins + PRIOR * 0.5) / (r.games + PRIOR);
+    r.metaMul = 0.6 + 0.4 * Math.min(1, r.pick / ref);
+    r.power = (r.wrAdj - 0.5) * 100 * r.metaMul;
+    r.tier = r.power >= 3 ? "S" : r.power >= 1.5 ? "A" : r.power >= 0 ? "B" : r.power >= -1.5 ? "C" : "D";
+  });
   const sorters = {power: (a, b) => b.power - a.power, wr: (a, b) => b.wr - a.wr || b.games - a.games, pick: (a, b) => b.games - a.games};
   rows.sort(sorters[META_SORT]);
   const maxPick = Math.max(...rows.map(r => r.pick), 0.01);
@@ -462,24 +474,24 @@ async function showMeta(pos) {
     <div class="stats">${META.matches.toLocaleString("ru-RU")} матчей на этом патче · источник: ${esc(META.source || "про-матчи и Immortal-пабы")}${fresh ? " · патч свежий, цифры ещё могут сдвигаться" : ""}</div>
     <div class="tabs">${tabs}</div>
     <div class="src">Сортировать:
-      ${sortBtn("power", "Сила", "Винрейт с поправкой на число игр: герой с 3 победами из 3 не обгонит героя с 60% на сотне игр")}
+      ${sortBtn("power", "Тир", "Учитывает и винрейт, и то, насколько герой в мете: S — сильный и его часто берут, D — проигрывает. Редкого героя с высоким винрейтом немного штрафуем")}
       ${sortBtn("wr", "Винрейт", "Просто процент побед, без учёта числа игр")}
       ${sortBtn("pick", "Популярность", "Как часто героя берут")}</div>
     <div class="mtable">
-      <div class="mrow mhead"><span>#</span><span>Герой</span><span>Винрейт</span><span>Популярность</span><span>Игр</span></div>
+      <div class="mrow mhead"><span>Тир</span><span>Герой</span><span>Винрейт</span><span>Популярность</span><span>Игр</span></div>
       ${rows.map((r, i) => {
         const h = HERO_BY_ID[r.id] || {name: "?"};
         const few = r.games < 30;
         const wrCls = r.wr >= .53 ? "g" : r.wr <= .47 ? "r" : "";
         return `<a class="mrow ${few ? "few" : ""}" href="#h${r.id}${pos ? "-" + pos : ""}" ${few ? 'data-tip="Мало игр — винрейт может быть случайным"' : ""}>
-          <span class="mn">${i + 1}</span>
+          <span class="tier t${r.tier}" data-tip="Сила ${r.power >= 0 ? "+" : ""}${r.power.toFixed(1)}: винрейт с поправкой на выборку ${(r.wrAdj * 100).toFixed(1)}%, множитель меты ×${r.metaMul.toFixed(2)}">${r.tier}</span>
           <span class="mhero">${heroIcon(r.id, "hc")}${esc(h.name)}</span>
           <span class="mwr"><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b><i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
           <span class="mpk">${(r.pick * 100).toFixed(1)}%<i class="pkbar"><i style="width:${Math.round(r.pick / maxPick * 100)}%"></i></i></span>
           <span class="mg">${r.games}</span></a>`;
       }).join("") || '<div class="empty-msg">Пока нет игр</div>'}
     </div>
-    <div class="legend">Серым — меньше 30 игр. Нажми на героя, чтобы открыть его билд${pos ? " на этой позиции" : ""}.</div>`;
+    <div class="legend">Тир: S — сильный мета-герой, A — сильный, B — нормальный, C — слабее среднего, D — проигрывает. Наведи на букву, чтобы увидеть расчёт. Серым — меньше 30 игр. Нажми на героя, чтобы открыть его билд${pos ? " на этой позиции" : ""}.</div>`;
   $("#metaview").querySelectorAll("[data-mpos]").forEach(b => b.onclick = () => {
     const p = +b.dataset.mpos;
     history.replaceState(history.state, "", p ? `#meta-${p}` : "#meta");
