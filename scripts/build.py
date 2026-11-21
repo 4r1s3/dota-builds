@@ -814,8 +814,11 @@ def main():
         for h, (g_, w_) in winrates["all"].items():
             if not g_:
                 continue
+            tr = winrates.get("trend", {})
             meta_list.append({"id": h, "games": g_, "wins": w_, "wr": round(w_ / g_, 3),
                               "pick": round(g_ / max(1, meta_matches), 3),
+                              "trend": tr.get("all", {}).get(h),
+                              "posTrend": {p_: tr[p_][h] for p_ in range(1, 6) if tr.get(p_, {}).get(h)},
                               "pos": {p_: {"games": winrates[p_].get(h, [0, 0])[0], "wins": winrates[p_].get(h, [0, 0])[1]}
                                       for p_ in range(1, 6) if winrates[p_].get(h)}})
         meta_source = f"Immortal, STRATZ, {winrates['days']} дн. после патча"
@@ -827,6 +830,7 @@ def main():
                   "pos": {p_: {"games": g_, "wins": w_} for p_, (g_, w_) in v["pos"].items()}}
                  for h, v in meta_stat.items()]
     (OUT / "meta.json").write_text(json.dumps({"matches": meta_matches, "source": meta_source, "updated": int(time.time()),
+                                               "days": (winrates or {}).get("days", 0),
                                                "pro": pro_match_count, "heroes": meta_list},
                                               ensure_ascii=False, separators=(",", ":")))
     hn = {int(k): v["localized_name"] for k, v in heroes.items()}

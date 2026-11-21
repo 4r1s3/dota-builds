@@ -184,8 +184,9 @@ def hero_winrates(min_day_ts):
         return None
     hs = data["heroStats"]
     out, days = {}, set()
+    out["trend"] = {}
     for key in ["all"] + [f"p{n}" for n in range(1, 6)]:
-        agg = {}
+        agg, daily = {}, {}
         for r in hs.get(key) or []:
             if (r.get("day") or 0) < min_day_ts:
                 continue
@@ -193,6 +194,31 @@ def hero_winrates(min_day_ts):
             g = agg.setdefault(r["heroId"], [0, 0])
             g[0] += r["matchCount"]
             g[1] += r["winCount"]
-        out["all" if key == "all" else int(key[1])] = agg
+            d = daily.setdefault(r["day"], {}).setdefault(r["heroId"], [0, 0])
+            d[0] += r["matchCount"]
+            d[1] += r["winCount"]
+        k = "all" if key == "all" else int(key[1])
+        out[k] = agg
+        out["trend"][k] = _trend(daily)
     out["days"] = len(days)
     return out
+
+
+def _trend(daily):
+    """Последний день против всех предыдущих дней патча: изменение винрейта и популярности (в п.п.)."""
+    if len(daily) < 2:
+        return {}
+    last = max(daily)
+    prev = [d for d in daily if d != last]
+    m_last = sum(g for g, _ in daily[last].values()) / 10 or 1
+    m_prev = sum(g for d in prev for g, _ in daily[d].values()) / 10 or 1
+    res = {}
+    for h in set(daily[last]) | {h for d in prev for h in daily[d]}:
+        gl, wl = daily[last].get(h, [0, 0])
+        gp = sum(daily[d].get(h, [0, 0])[0] for d in prev)
+        wp = sum(daily[d].get(h, [0, 0])[1] for d in prev)
+        if gl < 100 or gp < 100:  # мало игр — изменение будет шумом
+            continue
+        res[h] = {"wr": round((wl / gl - wp / gp) * 100, 1), "pick": round((gl / m_last - gp / m_prev) * 100, 1),
+                  "last": gl}
+    return res

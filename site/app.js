@@ -450,7 +450,8 @@ async function showMeta(pos) {
   const total = META.matches || 1;
   const rows = META.heroes.map(h => {
     const s = pos ? (h.pos[pos] || {games: 0, wins: 0}) : h;
-    return {id: h.id, games: s.games, wins: s.wins, wr: s.games ? s.wins / s.games : 0, pick: s.games / total};
+    const tr = pos ? (h.posTrend || {})[pos] : h.trend;
+    return {id: h.id, games: s.games, wins: s.wins, wr: s.games ? s.wins / s.games : 0, pick: s.games / total, tr};
   }).filter(r => r.games > 0);
   // Сила = насколько герой выигрывает × насколько он в мете.
   // 1) винрейт с поправкой на выборку: будто у героя есть ещё PRIOR игр с 50% — редкие герои не взлетают от случайности;
@@ -464,7 +465,11 @@ async function showMeta(pos) {
     r.power = (r.wrAdj - 0.5) * 100 * r.metaMul;
     r.tier = r.power >= 3 ? "S" : r.power >= 1.5 ? "A" : r.power >= 0 ? "B" : r.power >= -1.5 ? "C" : "D";
   });
-  const sorters = {power: (a, b) => b.power - a.power, wr: (a, b) => b.wr - a.wr || b.games - a.games, pick: (a, b) => b.games - a.games};
+  const trendScore = r => r.tr ? r.tr.wr + r.tr.pick * 0.5 : -99;
+  const sorters = {power: (a, b) => b.power - a.power, wr: (a, b) => b.wr - a.wr || b.games - a.games, pick: (a, b) => b.games - a.games,
+    trend: (a, b) => trendScore(b) - trendScore(a)};
+  // стрелка тренда: показываем только заметные изменения (винрейт ±1 п.п., популярность ±1 п.п.)
+  const arrow = (v, unit = "") => v >= 1 ? `<i class="up">▲${v.toFixed(1)}${unit}</i>` : v <= -1 ? `<i class="dn">▼${Math.abs(v).toFixed(1)}${unit}</i>` : "";
   rows.sort(sorters[META_SORT]);
   const maxPick = Math.max(...rows.map(r => r.pick), 0.01);
   const tabs = [0, 1, 2, 3, 4, 5].map(p => `<button class="tab ${p === (pos || 0) ? "on" : ""}" data-mpos="${p}">${p ? POS[p] : "Все позиции"}</button>`).join("");
@@ -476,7 +481,9 @@ async function showMeta(pos) {
     <div class="src">Сортировать:
       ${sortBtn("power", "Тир", "Учитывает и винрейт, и то, насколько герой в мете: S — сильный и его часто берут, D — проигрывает. Редкого героя с высоким винрейтом немного штрафуем")}
       ${sortBtn("wr", "Винрейт", "Просто процент побед, без учёта числа игр")}
-      ${sortBtn("pick", "Популярность", "Как часто героя берут")}</div>
+      ${sortBtn("pick", "Популярность", "Как часто героя берут")}
+      ${sortBtn("trend", "Тренд", "Кто растёт: изменение за последний день по сравнению с предыдущими днями патча")}</div>
+    ${!(META.days >= 2) ? `<div class="legend">Тренд появится, когда у STRATZ будет хотя бы два полных дня нового патча.</div>` : ""}
     <div class="mtable">
       <div class="mrow mhead"><span>Тир</span><span>Герой</span><span>Винрейт</span><span>Популярность</span><span>Игр</span></div>
       ${rows.map((r, i) => {
@@ -486,8 +493,8 @@ async function showMeta(pos) {
         return `<a class="mrow ${few ? "few" : ""}" href="#h${r.id}${pos ? "-" + pos : ""}" ${few ? 'data-tip="Мало игр — винрейт может быть случайным"' : ""}>
           <span class="tier t${r.tier}" data-tip="Сила ${r.power >= 0 ? "+" : ""}${r.power.toFixed(1)}: винрейт с поправкой на выборку ${(r.wrAdj * 100).toFixed(1)}%, множитель меты ×${r.metaMul.toFixed(2)}">${r.tier}</span>
           <span class="mhero">${heroIcon(r.id, "hc")}${esc(h.name)}</span>
-          <span class="mwr"><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b><i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
-          <span class="mpk">${(r.pick * 100).toFixed(1)}%<i class="pkbar"><i style="width:${Math.round(r.pick / maxPick * 100)}%"></i></i></span>
+          <span class="mwr" ${r.tr ? `data-tip="За последний день винрейт ${r.tr.wr >= 0 ? "+" : ""}${r.tr.wr} п.п. к предыдущим дням (${r.tr.last} игр)"` : ""}><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b>${r.tr ? arrow(r.tr.wr) : ""}<i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
+          <span class="mpk" ${r.tr ? `data-tip="За последний день популярность ${r.tr.pick >= 0 ? "+" : ""}${r.tr.pick} п.п."` : ""}>${(r.pick * 100).toFixed(1)}%${r.tr ? arrow(r.tr.pick) : ""}<i class="pkbar"><i style="width:${Math.round(r.pick / maxPick * 100)}%"></i></i></span>
           <span class="mg">${r.games}</span></a>`;
       }).join("") || '<div class="empty-msg">Пока нет игр</div>'}
     </div>

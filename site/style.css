@@ -221,3 +221,6 @@ a.mrow:hover{border-color:var(--accent)}
 
 .tier{width:26px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#111;justify-self:end}
 .tier.tS{background:#e0533d;color:#fff} .tier.tA{background:#e6a23c} .tier.tB{background:#d8b45a} .tier.tC{background:#6b7480;color:#fff} .tier.tD{background:#3a414c;color:var(--dim)}
+
+.mwr i.up,.mpk i.up,.mwr i.dn,.mpk i.dn{font-style:normal;font-size:10px;font-weight:700;white-space:nowrap}
+i.up{color:var(--good)} i.dn{color:var(--bad)}
