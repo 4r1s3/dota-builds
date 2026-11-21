@@ -456,20 +456,25 @@ async function showMeta(pos) {
   // Сила = насколько герой выигрывает × насколько он в мете.
   // 1) винрейт с поправкой на выборку: будто у героя есть ещё PRIOR игр с 50% — редкие герои не взлетают от случайности;
   // 2) множитель меты 0.6…1: героя, которого почти не берут, штрафуем до 40% (нишевый пик ≠ сильный герой).
-  const PRIOR = 200;
+  const PRIOR = 300;
+  const MIN_TIER_GAMES = 150;  // меньше — тир не присваиваем: слишком случайно
   const byGames = [...rows].sort((a, b) => b.games - a.games);
   const ref = (byGames[Math.min(19, byGames.length - 1)] || {pick: 0.01}).pick || 0.01; // «обычный мета-герой» — 20-й по популярности
   rows.forEach(r => {
     r.wrAdj = (r.wins + PRIOR * 0.5) / (r.games + PRIOR);
-    r.metaMul = 0.6 + 0.4 * Math.min(1, r.pick / ref);
+    // редкого героя штрафуем сильно: в 4 раза реже типичного мета-героя — сила ×0.5, в 10 раз — ×0.32
+    r.metaMul = Math.sqrt(Math.min(1, r.pick / ref));
     r.power = (r.wrAdj - 0.5) * 100 * r.metaMul;
-    r.tier = r.power >= 3 ? "S" : r.power >= 1.5 ? "A" : r.power >= 0 ? "B" : r.power >= -1.5 ? "C" : "D";
+    r.few = r.games < MIN_TIER_GAMES;
+    r.tier = r.few ? "?" : r.power >= 3 ? "S" : r.power >= 1.5 ? "A" : r.power >= 0 ? "B" : r.power >= -1.5 ? "C" : "D";
   });
   const trendScore = r => r.tr ? r.tr.wr + r.tr.pick * 0.5 : -99;
-  const sorters = {power: (a, b) => b.power - a.power, wr: (a, b) => b.wr - a.wr || b.games - a.games, pick: (a, b) => b.games - a.games,
+  const sorters = {power: (a, b) => (a.few - b.few) || b.power - a.power, wr: (a, b) => b.wr - a.wr || b.games - a.games, pick: (a, b) => b.games - a.games,
     trend: (a, b) => trendScore(b) - trendScore(a)};
   // стрелка тренда: показываем только заметные изменения (винрейт ±1 п.п., популярность ±1 п.п.)
-  const arrow = (v, unit = "") => v >= 1 ? `<i class="up">▲${v.toFixed(1)}${unit}</i>` : v <= -1 ? `<i class="dn">▼${Math.abs(v).toFixed(1)}${unit}</i>` : "";
+  const SHOW_TREND = false;  // тренды временно скрыты (данные собираются, вернуть — true)
+  if (!SHOW_TREND && META_SORT === "trend") META_SORT = "power";
+  const arrow = (v, unit = "") => !SHOW_TREND ? "" : v >= 1 ? `<i class="up">▲${v.toFixed(1)}${unit}</i>` : v <= -1 ? `<i class="dn">▼${Math.abs(v).toFixed(1)}${unit}</i>` : "";
   rows.sort(sorters[META_SORT]);
   const maxPick = Math.max(...rows.map(r => r.pick), 0.01);
   const tabs = [0, 1, 2, 3, 4, 5].map(p => `<button class="tab ${p === (pos || 0) ? "on" : ""}" data-mpos="${p}">${p ? POS[p] : "Все позиции"}</button>`).join("");
@@ -482,23 +487,22 @@ async function showMeta(pos) {
       ${sortBtn("power", "Тир", "Учитывает и винрейт, и то, насколько герой в мете: S — сильный и его часто берут, D — проигрывает. Редкого героя с высоким винрейтом немного штрафуем")}
       ${sortBtn("wr", "Винрейт", "Просто процент побед, без учёта числа игр")}
       ${sortBtn("pick", "Популярность", "Как часто героя берут")}
-      ${sortBtn("trend", "Тренд", "Кто растёт: изменение за последний день по сравнению с предыдущими днями патча")}</div>
-    ${!(META.days >= 2) ? `<div class="legend">Тренд появится, когда у STRATZ будет хотя бы два полных дня нового патча.</div>` : ""}
+</div>
     <div class="mtable">
       <div class="mrow mhead"><span>Тир</span><span>Герой</span><span>Винрейт</span><span>Популярность</span><span>Игр</span></div>
       ${rows.map((r, i) => {
         const h = HERO_BY_ID[r.id] || {name: "?"};
-        const few = r.games < 30;
+        const few = r.few;
         const wrCls = r.wr >= .53 ? "g" : r.wr <= .47 ? "r" : "";
         return `<a class="mrow ${few ? "few" : ""}" href="#h${r.id}${pos ? "-" + pos : ""}" ${few ? 'data-tip="Мало игр — винрейт может быть случайным"' : ""}>
-          <span class="tier t${r.tier}" data-tip="Сила ${r.power >= 0 ? "+" : ""}${r.power.toFixed(1)}: винрейт с поправкой на выборку ${(r.wrAdj * 100).toFixed(1)}%, множитель меты ×${r.metaMul.toFixed(2)}">${r.tier}</span>
+          <span class="tier t${r.few ? "Q" : r.tier}" data-tip="${r.few ? `Мало игр (${r.games}) — тир не присваиваем, винрейт может быть случайным\n` : ""}Сила ${r.power >= 0 ? "+" : ""}${r.power.toFixed(1)}: винрейт с поправкой на выборку ${(r.wrAdj * 100).toFixed(1)}%, множитель меты ×${r.metaMul.toFixed(2)}">${r.tier}</span>
           <span class="mhero">${heroIcon(r.id, "hc")}${esc(h.name)}</span>
-          <span class="mwr" ${r.tr ? `data-tip="За последний день винрейт ${r.tr.wr >= 0 ? "+" : ""}${r.tr.wr} п.п. к предыдущим дням (${r.tr.last} игр)"` : ""}><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b>${r.tr ? arrow(r.tr.wr) : ""}<i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
-          <span class="mpk" ${r.tr ? `data-tip="За последний день популярность ${r.tr.pick >= 0 ? "+" : ""}${r.tr.pick} п.п."` : ""}>${(r.pick * 100).toFixed(1)}%${r.tr ? arrow(r.tr.pick) : ""}<i class="pkbar"><i style="width:${Math.round(r.pick / maxPick * 100)}%"></i></i></span>
+          <span class="mwr" ${SHOW_TREND && r.tr ? `data-tip="За последний день винрейт ${r.tr.wr >= 0 ? "+" : ""}${r.tr.wr} п.п. к предыдущим дням (${r.tr.last} игр)"` : ""}><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b>${r.tr ? arrow(r.tr.wr) : ""}<i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
+          <span class="mpk" ${SHOW_TREND && r.tr ? `data-tip="За последний день популярность ${r.tr.pick >= 0 ? "+" : ""}${r.tr.pick} п.п."` : ""}>${(r.pick * 100).toFixed(1)}%${r.tr ? arrow(r.tr.pick) : ""}<i class="pkbar"><i style="width:${Math.round(r.pick / maxPick * 100)}%"></i></i></span>
           <span class="mg">${r.games}</span></a>`;
       }).join("") || '<div class="empty-msg">Пока нет игр</div>'}
     </div>
-    <div class="legend">Тир: S — сильный мета-герой, A — сильный, B — нормальный, C — слабее среднего, D — проигрывает. Наведи на букву, чтобы увидеть расчёт. Серым — меньше 30 игр. Нажми на героя, чтобы открыть его билд${pos ? " на этой позиции" : ""}.</div>`;
+    <div class="legend">Тир: S — сильный мета-герой, A — сильный, B — нормальный, C — слабее среднего, D — проигрывает. «?» — меньше 150 игр, тир не присваивается. Наведи на букву, чтобы увидеть расчёт. Нажми на героя, чтобы открыть его билд${pos ? " на этой позиции" : ""}.</div>`;
   $("#metaview").querySelectorAll("[data-mpos]").forEach(b => b.onclick = () => {
     const p = +b.dataset.mpos;
     history.replaceState(history.state, "", p ? `#meta-${p}` : "#meta");

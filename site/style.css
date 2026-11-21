@@ -224,3 +224,5 @@ a.mrow:hover{border-color:var(--accent)}
 
 .mwr i.up,.mpk i.up,.mwr i.dn,.mpk i.dn{font-style:normal;font-size:10px;font-weight:700;white-space:nowrap}
 i.up{color:var(--good)} i.dn{color:var(--bad)}
+
+.tier.tQ{background:transparent;border:1px dashed var(--line);color:var(--dim)}
