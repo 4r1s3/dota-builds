@@ -140,7 +140,10 @@ async function showHero(id, pos) {
       <div class="vm">${meta}</div>${players && players.length ? `<div class="vp">Брали: ${players.map(esc).join(", ")}</div>` : ""}</div>`;
   const cost = its => its.reduce((s, i) => s + ((DB.items[i.key] || {}).cost || 0) * i.count, 0);
   const sets = (raw.startSets || []);
-  const setMeta = v => `<b>${v.games}</b> из ${raw.games} игр (${pct(v.share)}) · винрейт <b>${pct(v.wr)}</b> · ${v.cost} из 600 золота`;
+  // в «гайдовых» пабах герой почти всегда выиграл — показывать винрейт предметов/закупов там нечестно
+  const biased = raw.winsBiased;
+  const wrTxt = (w, pre = ", винрейт ") => biased || w == null ? "" : pre + pct(w);
+  const setMeta = v => `<b>${v.games}</b> из ${raw.games} игр (${pct(v.share)})${biased ? "" : ` · винрейт <b>${pct(v.wr)}</b>`} · ${v.cost} из 600 золота`;
   let variants;
   if (useImm && raw.imm.startSet && raw.imm.startSet.length) {
     variants = setCard("Основной закуп", raw.imm.startSet,
@@ -149,12 +152,12 @@ async function showHero(id, pos) {
   } else {
     variants = sets.slice(0, 2).map((v, i) => setCard(i ? "Ситуативный" : "Основной закуп", v.items, setMeta(v), v.players, i ? "" : "main", v)).join("");
   }
-  const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт с ним ${pct(c.wr)}">
+  const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр${wrTxt(c.wr, ", винрейт с ним ")}">
       <div class="pic">${icon(c.key)}<span class="step">${i + 1}</span></div>
       <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр</div>
-      ${c.alt ? `<div class="alt" data-tip="Вместо ${nm(c.key)} в этом месте берут ${nm(c.alt.key)}: ${pct(c.alt.share)} игр, ~${mmss(c.alt.time)}, винрейт ${pct(c.alt.wr)}. Вместе их почти не покупают — выбирай по игре">
+      ${c.alt ? `<div class="alt" data-tip="Вместо ${nm(c.key)} в этом месте берут ${nm(c.alt.key)}: ${pct(c.alt.share)} игр, ~${mmss(c.alt.time)}${wrTxt(c.alt.wr)}. Вместе их почти не покупают — выбирай по игре">
         <span>или</span><div class="pic">${icon(c.alt.key)}</div><div class="nm">${nm(c.alt.key)}</div><div class="sub">${pct(c.alt.share)} игр</div></div>` : ""}</div>`).join("");
-  const sit = d.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, берут в ${pct(c.share)} игр, винрейт ${pct(c.wr)} (${c.n} игр)">
+  const sit = d.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, берут в ${pct(c.share)} игр${wrTxt(c.wr)} (${c.n} игр)">
       <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин</div></div>`).join("");
 
   const th = DB.meta.thresholds;
@@ -177,7 +180,8 @@ async function showHero(id, pos) {
     <div class="items">${start || '<span class="stats">—</span>'}</div>
     <h2>Основной билд — по порядку покупки${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
     <h2>Ситуативные предметы — по популярности${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
-    <h2>${useImm ? "Игры Immortal-пабов" : "Про-игры"}</h2>
+    <h2>${useImm || !(raw.pro && raw.pro.length) ? "Игры Immortal-пабов" : "Про-игры"}</h2>
+    ${raw.winsBiased ? `<div class="legend">Immortal-пабы берутся из подборки STRATZ лучших игр на герое — это выигранные матчи. По ним хорошо видно, <i style="border:0;width:auto;height:auto">что</i> покупают и качают, но не винрейты, поэтому винрейты предметов здесь скрыты.</div>` : ""}
     <div class="legend"><i></i> — предмет не из стандартного билда, под игрой написано почему · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
     <div class="pro">${games || `<div class="stats">${useImm ? "Пабов на этой позиции пока нет — они докачиваются каждую ночь. Переключись на «Про-матчи»." : "Про-игр на этой позиции нет. Переключись на «Divine/Immortal пабы»."}</div>`}</div>`;
   bind(hero);
@@ -185,7 +189,7 @@ async function showHero(id, pos) {
 }
 function head(hero, d, imm) {
   return `<div class="head"><button class="back">← Герои</button><img src="${hero.img}" alt="">
-    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats"><b>${d.games.toLocaleString("ru-RU")}</b> ${imm ? "игр Divine/Immortal" : d.pubGames ? `игр (${d.games - d.pubGames} про + ${d.pubGames} Immortal-пабов)` : "про-игр"} · винрейт <b>${pct(d.wr)}</b>${!imm && d.gpm ? ` · GPM <b>${d.gpm}</b>` : ""}</div>` : ""}</div></div>`;
+    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats">${d.immWr != null && d.immGames ? `винрейт в Immortal <b class="${d.immWr >= .52 ? "g" : d.immWr <= .48 ? "r" : ""}">${pct(d.immWr)}</b> (${d.immGames.toLocaleString("ru-RU")} игр на этой позиции) · ` : ""}билд по <b>${d.games.toLocaleString("ru-RU")}</b> ${imm ? "играм Divine/Immortal" : d.pubGames ? `играм (${d.games - d.pubGames} про + ${d.pubGames} Immortal-пабов)` : "про-играм"}${!d.winsBiased && !imm ? ` · винрейт в них <b>${pct(d.wr)}</b>` : ""}${!imm && d.gpm ? ` · GPM <b>${d.gpm}</b>` : ""}</div>` : ""}</div></div>`;
 }
 function bind(hero) {
   $("#card").querySelectorAll(".tab[data-pos]").forEach(b => b.onclick = () => showHero(hero.id, +b.dataset.pos));
@@ -455,7 +459,7 @@ async function showMeta(pos) {
   const sortBtn = (k2, label, tip) => `<button class="sbtn ${META_SORT === k2 ? "on" : ""}" data-msort="${k2}" data-tip="${tip}">${label}</button>`;
   const fresh = DB.meta.freshPatch;
   $("#metaview").innerHTML = `<h1 class="mh">Мета патча ${esc(DB.meta.patch)}</h1>
-    <div class="stats">${META.matches} матчей на этом патче (${META.pro || 0} про, остальное — Immortal-пабы)${fresh ? " · патч свежий, винрейты пока сильно колеблются" : ""}</div>
+    <div class="stats">${META.matches.toLocaleString("ru-RU")} матчей на этом патче · источник: ${esc(META.source || "про-матчи и Immortal-пабы")}${fresh ? " · патч свежий, цифры ещё могут сдвигаться" : ""}</div>
     <div class="tabs">${tabs}</div>
     <div class="src">Сортировать:
       ${sortBtn("power", "Сила", "Винрейт с поправкой на число игр: герой с 3 победами из 3 не обгонит героя с 60% на сотне игр")}

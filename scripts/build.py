@@ -349,6 +349,18 @@ def main():
             matches[r["match_id"]].append(r)
         rows.extend(pub_rows)
 
+    # винрейты Immortal без перекоса: сводная статистика STRATZ по дням после патча
+    winrates = None
+    if use_stratz and patch_ts:
+        first_full_day = (int(patch_ts) // 86400 + 1) * 86400
+        try:
+            winrates = stratz.hero_winrates(first_full_day)
+            if winrates:
+                print(f"Винрейты Immortal (STRATZ): {winrates['days']} дн., "
+                      f"{sum(g for g, _ in winrates['all'].values()) // 10} матчей")
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! винрейты STRATZ не загрузились: {e}", file=sys.stderr)
+
     fb_all = {}
     for r in rows:
         if r["purchase_log"]:
@@ -606,6 +618,11 @@ def main():
             positions[pos] = {
                 "games": n, "wr": round(wins / n, 2), "gpm": med_gpm,
                 "pubGames": sum(1 for g in games if g.get("src") == "pub"),
+                # в «гайдовых» пабах герой почти всегда выиграл — винрейты предметов/закупов по ним бессмысленны
+                "winsBiased": any(g.get("src") == "pub" for g in games),
+                "immWr": (lambda gw: round(gw[1] / gw[0], 3) if gw and gw[0] else None)(
+                    (winrates or {}).get(pos, {}).get(hid)),
+                "immGames": ((winrates or {}).get(pos, {}).get(hid) or [0])[0],
                 "skills": skill_seq, "skillsExact": skill_exact,
                 "talents": talents, "start": start_items, "startSets": start_variants, "core": core,
                 "situational": situational, "pro": pro_games, "pubs": pub_games,
@@ -789,16 +806,32 @@ def main():
         if r.get("pos"):
             m_["pos"][r["pos"]][0] += 1
             m_["pos"][r["pos"]][1] += won
-    meta_list = [{"id": h, "games": v["games"], "wins": v["wins"], "wr": round(v["wins"] / v["games"], 3),
+    if winrates and winrates.get("all"):
+        # мета по всем Immortal-играм STRATZ (без перекоса «гайдовых» пабов)
+        total_games = sum(g for g, _ in winrates["all"].values())
+        meta_matches = total_games // 10
+        meta_list = []
+        for h, (g_, w_) in winrates["all"].items():
+            if not g_:
+                continue
+            meta_list.append({"id": h, "games": g_, "wins": w_, "wr": round(w_ / g_, 3),
+                              "pick": round(g_ / max(1, meta_matches), 3),
+                              "pos": {p_: {"games": winrates[p_].get(h, [0, 0])[0], "wins": winrates[p_].get(h, [0, 0])[1]}
+                                      for p_ in range(1, 6) if winrates[p_].get(h)}})
+        meta_source = f"Immortal, STRATZ, {winrates['days']} дн. после патча"
+    else:
+        meta_matches = len(all_matches)
+        meta_source = "про-матчи и Immortal-пабы"
+    meta_list = meta_list if winrates and winrates.get("all") else [{"id": h, "games": v["games"], "wins": v["wins"], "wr": round(v["wins"] / v["games"], 3),
                   "pick": round(v["games"] / max(1, len(all_matches)), 3),
                   "pos": {p_: {"games": g_, "wins": w_} for p_, (g_, w_) in v["pos"].items()}}
                  for h, v in meta_stat.items()]
-    (OUT / "meta.json").write_text(json.dumps({"matches": len(all_matches), "updated": int(time.time()),
+    (OUT / "meta.json").write_text(json.dumps({"matches": meta_matches, "source": meta_source, "updated": int(time.time()),
                                                "pro": pro_match_count, "heroes": meta_list},
                                               ensure_ascii=False, separators=(",", ":")))
     hn = {int(k): v["localized_name"] for k, v in heroes.items()}
     solid = sorted([x for x in meta_list if x["games"] >= 20], key=lambda x: -x["wr"])
-    print(f"МЕТА: {len(all_matches)} матчей")
+    print(f"МЕТА: {meta_matches} матчей ({meta_source})")
     print("МЕТА винрейт:", "; ".join(f"{hn.get(x['id'])} {x['wr']:.0%} ({x['games']})" for x in solid[:15]))
     print("МЕТА популярность:", "; ".join(f"{hn.get(x['id'])} {x['pick']:.0%} ({x['wr']:.0%})"
                                          for x in sorted(meta_list, key=lambda x: -x["games"])[:15]))

@@ -164,3 +164,35 @@ def fetch_hero(hid, item_ids, ability_ids, talent_level, is_build_item, item_cos
         out[n] = {"games": games, "wr": round(wins / games, 2), "core": core,
                   "situational": situational, "start": start, "startSet": start_set, "talents": talents, "maxOrder": max_order}
     return out
+
+
+def hero_winrates(min_day_ts):
+    """Винрейт героев в Immortal по дням (все игры подряд, без перекоса гайдов).
+
+    Возвращает {"all": {hero: [games, wins]}, 1: {...}, ..., 5: {...}, "days": n}
+    Берутся только полные дни, начавшиеся не раньше min_day_ts (дни после выхода патча).
+    """
+    token = os.environ.get("STRATZ_TOKEN")
+    if not token:
+        return None
+    parts = ['all: winDay(take: 5000, bracketIds: [IMMORTAL], groupBy: HERO_ID) { day heroId winCount matchCount }']
+    for n in range(1, 6):
+        parts.append(f'p{n}: winDay(take: 5000, bracketIds: [IMMORTAL], positionIds: [POSITION_{n}], groupBy: HERO_ID) '
+                     '{ day heroId winCount matchCount }')
+    data = gql("{ heroStats { " + " ".join(parts) + " } }", {}, token, tries=3)
+    if not data:
+        return None
+    hs = data["heroStats"]
+    out, days = {}, set()
+    for key in ["all"] + [f"p{n}" for n in range(1, 6)]:
+        agg = {}
+        for r in hs.get(key) or []:
+            if (r.get("day") or 0) < min_day_ts:
+                continue
+            days.add(r["day"])
+            g = agg.setdefault(r["heroId"], [0, 0])
+            g[0] += r["matchCount"]
+            g[1] += r["winCount"]
+        out["all" if key == "all" else int(key[1])] = agg
+    out["days"] = len(days)
+    return out
