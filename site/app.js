@@ -437,6 +437,8 @@ let META_SORT = "power";
 let META_PERIOD = null;
 let META_GAMES = "all";  // "all" — все игры Immortal (STRATZ), "solo" — только матчи, где все 10 в соло
 let SOLO = null;
+let META_SHOW_RARE = false;
+const MIN_TIER_GAMES = 150;  // меньше игр — тир не присваиваем и по умолчанию не показываем: слишком случайно
 // Нижняя граница доверительного интервала Уилсона: винрейт с поправкой на число игр.
 // 3 победы из 3 игр не должны стоять выше 60% на сотне игр.
 function wilson(w, n, z = 1.64) {
@@ -484,6 +486,10 @@ async function showMeta(pos) {
     const tr = pos ? (h.posTrend || {})[pos] : h.trend;
     return {id: h.id, games, wins, wr: games ? wins / games : 0, pick: games / total, tr};
   }).filter(r => r.games > 0);
+  // в соло-выборке игр на порядок меньше — порог скрытия ниже, иначе пропадут почти все
+  const minShow = soloMode ? 40 : MIN_TIER_GAMES;
+  const rareCount = rows.filter(r => r.games < minShow).length;
+  if (!META_SHOW_RARE) for (let i = rows.length - 1; i >= 0; i--) if (rows[i].games < minShow) rows.splice(i, 1);
   const usedDays = days.filter((d, i) => use[i]);
   const fmtDay = ts => new Date(ts * 1000).toLocaleDateString("ru-RU", {day: "numeric", month: "short"});
   const periodInfo = hasDaily && usedDays.length ? `${fmtDay(usedDays[0])} — ${fmtDay(usedDays[usedDays.length - 1])}` : "";
@@ -492,7 +498,6 @@ async function showMeta(pos) {
   // 1) винрейт с поправкой на выборку: будто у героя есть ещё PRIOR игр с 50% — редкие герои не взлетают от случайности;
   // 2) множитель меты 0.6…1: героя, которого почти не берут, штрафуем до 40% (нишевый пик ≠ сильный герой).
   const PRIOR = 300;
-  const MIN_TIER_GAMES = 150;  // меньше — тир не присваиваем: слишком случайно
   const byGames = [...rows].sort((a, b) => b.games - a.games);
   const ref = (byGames[Math.min(19, byGames.length - 1)] || {pick: 0.01}).pick || 0.01; // «обычный мета-герой» — 20-й по популярности
   rows.forEach(r => {
@@ -547,7 +552,8 @@ async function showMeta(pos) {
           <span class="mg">${r.games}</span></a>`;
       }).join("") || '<div class="empty-msg">Пока нет игр</div>'}
     </div>
-    <div class="legend">Тир: S — сильный мета-герой, A — сильный, B — нормальный, C — слабее среднего, D — проигрывает. «?» — меньше 150 игр, тир не присваивается. Наведи на букву, чтобы увидеть расчёт. Нажми на героя, чтобы открыть его билд${pos ? " на этой позиции" : ""}.</div>`;
+    <div class="legend">Тир: S — сильный мета-герой, A — сильный, B — нормальный, C — слабее среднего, D — проигрывает. Наведи на букву, чтобы увидеть расчёт.
+      ${rareCount ? `Скрыто героев с малым числом игр (меньше ${minShow}): ${rareCount} — их винрейт слишком случайный. <button class="linkbtn" data-rare="1">${META_SHOW_RARE ? "Скрыть" : "Показать"}</button>` : ""} Нажми на героя, чтобы открыть его билд${pos ? " на этой позиции" : ""}.</div>`;
   $("#metaview").querySelectorAll("[data-mpos]").forEach(b => b.onclick = () => {
     const p = +b.dataset.mpos;
     history.replaceState(history.state, "", p ? `#meta-${p}` : "#meta");
@@ -555,6 +561,7 @@ async function showMeta(pos) {
   });
   $("#metaview").querySelectorAll("[data-msort]").forEach(b => b.onclick = () => { META_SORT = b.dataset.msort; showMeta(pos); });
   $("#metaview").querySelectorAll("[data-mper]").forEach(b => b.onclick = () => { META_PERIOD = b.dataset.mper; showMeta(pos); });
+  $("#metaview").querySelectorAll("[data-rare]").forEach(a => a.onclick = e => { e.preventDefault(); e.stopPropagation(); META_SHOW_RARE = !META_SHOW_RARE; showMeta(pos); });
   $("#metaview").querySelectorAll("[data-mgames]").forEach(b => b.onclick = () => { META_GAMES = b.dataset.mgames; showMeta(pos); });
 }
 

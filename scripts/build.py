@@ -329,15 +329,22 @@ def main():
 
     # Immortal-статистика заранее: по ней видно, на каких позициях героя играют
     imm_all, want = {}, set()
+    empty_streak = 0
     if use_stratz:
         for hid_s, h in heroes.items():
             hid = int(hid_s)
             if only and hid not in only:
                 continue
             tl = {t["name"]: t["level"] for t in hero_abilities.get(h["name"], {}).get("talents", [])}
+            if empty_streak >= 8:  # недельная статистика STRATZ пуста (свежий патч) — не тратим лимит запросов
+                imm_all[hid] = {}
+                continue
             imm_all[hid] = stratz.fetch_hero(hid, item_ids, ability_ids, tl, is_build_item,
                                              {k: v.get("cost") for k, v in items.items()})
+            empty_streak = 0 if imm_all[hid] else empty_streak + 1
             time.sleep(1.2)
+        if empty_streak >= 8:
+            print("  недельная статистика STRATZ пуста — запросы по героям пропущены")
         pro_cnt = Counter((r["hero_id"], r.get("pos")) for r in rows if r.get("pos"))
         wanted, popular = [], []
         # на каких позициях героя играют: из дневной статистики Immortal (надёжнее недельной — та бывает пустой)

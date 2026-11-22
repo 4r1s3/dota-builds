@@ -226,3 +226,4 @@ a.mrow:hover{border-color:var(--accent)}
 i.up{color:var(--good)} i.dn{color:var(--bad)}
 
 .tier.tQ{background:transparent;border:1px dashed var(--line);color:var(--dim)}
+.linkbtn{background:none;border:0;padding:0;color:#7cb7ff;cursor:pointer;font:inherit;text-decoration:underline}

@@ -176,6 +176,24 @@ def fetch_hero(hid, item_ids, ability_ids, talent_level, is_build_item, item_cos
     return out
 
 
+_WINDAY = None
+
+
+def _winday(token):
+    """Один запрос winDay (все + 5 позиций) на всю сборку: и винрейты, и дневная статистика берутся из него."""
+    global _WINDAY
+    if _WINDAY is None:
+        parts = ['all: winDay(take: 5000, bracketIds: [IMMORTAL], groupBy: HERO_ID) { day heroId winCount matchCount }']
+        for n in range(1, 6):
+            parts.append(f'p{n}: winDay(take: 5000, bracketIds: [IMMORTAL], positionIds: [POSITION_{n}], groupBy: HERO_ID) '
+                         '{ day heroId winCount matchCount }')
+        data = gql("{ heroStats { " + " ".join(parts) + " } }", {}, token, tries=5)
+        if not data:
+            return None
+        _WINDAY = data["heroStats"]
+    return _WINDAY
+
+
 def hero_daily(since_day_ts):
     """Победы и игры героев в Immortal по дням, начиная с since_day_ts: для выбора периода на сайте.
 
@@ -184,14 +202,9 @@ def hero_daily(since_day_ts):
     token = os.environ.get("STRATZ_TOKEN")
     if not token:
         return None
-    parts = ['all: winDay(take: 5000, bracketIds: [IMMORTAL], groupBy: HERO_ID) { day heroId winCount matchCount }']
-    for n in range(1, 6):
-        parts.append(f'p{n}: winDay(take: 5000, bracketIds: [IMMORTAL], positionIds: [POSITION_{n}], groupBy: HERO_ID) '
-                     '{ day heroId winCount matchCount }')
-    data = gql("{ heroStats { " + " ".join(parts) + " } }", {}, token, tries=3)
-    if not data:
+    hs = _winday(token)
+    if not hs:
         return None
-    hs = data["heroStats"]
     days = sorted({r["day"] for r in hs.get("all") or [] if (r.get("day") or 0) >= since_day_ts})
     idx = {d: i for i, d in enumerate(days)}
     out = {}
@@ -215,14 +228,9 @@ def hero_winrates(min_day_ts):
     token = os.environ.get("STRATZ_TOKEN")
     if not token:
         return None
-    parts = ['all: winDay(take: 5000, bracketIds: [IMMORTAL], groupBy: HERO_ID) { day heroId winCount matchCount }']
-    for n in range(1, 6):
-        parts.append(f'p{n}: winDay(take: 5000, bracketIds: [IMMORTAL], positionIds: [POSITION_{n}], groupBy: HERO_ID) '
-                     '{ day heroId winCount matchCount }')
-    data = gql("{ heroStats { " + " ".join(parts) + " } }", {}, token, tries=3)
-    if not data:
+    hs = _winday(token)
+    if not hs:
         return None
-    hs = data["heroStats"]
     out, days = {}, set()
     out["trend"] = {}
     for key in ["all"] + [f"p{n}" for n in range(1, 6)]:
