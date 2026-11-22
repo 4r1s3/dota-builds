@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ladder  # noqa: E402
 import pubs  # noqa: E402
 import valve  # noqa: E402
 import reasons  # noqa: E402
@@ -348,6 +349,16 @@ def main():
         for r in pub_rows:
             matches[r["match_id"]].append(r)
         rows.extend(pub_rows)
+
+    # непредвзятые матчи топ-игроков лидерборда (пока только копим и пишем сводку в лог, на сайт не выводим)
+    if use_stratz and patch_ts:
+        try:
+            lad = ladder.fetch(patch_ts)
+            hn_ = {int(k): v["localized_name"] for k, v in heroes.items()}
+            for line in ladder.summary(lad, hn_).splitlines():
+                print("ЛАДДЕР:", line)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! лидерборд не загрузился: {e}", file=sys.stderr)
 
     # винрейты Immortal без перекоса: сводная статистика STRATZ по дням после патча
     winrates = None
