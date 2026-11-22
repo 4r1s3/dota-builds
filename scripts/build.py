@@ -315,6 +315,18 @@ def main():
                 del seen[k]
         return seen
 
+    # винрейты Immortal без перекоса: сводная статистика STRATZ по дням после патча
+    winrates = None
+    if use_stratz and patch_ts:
+        first_full_day = (int(patch_ts) // 86400 + 1) * 86400
+        try:
+            winrates = stratz.hero_winrates(first_full_day)
+            if winrates:
+                print(f"Винрейты Immortal (STRATZ): {winrates['days']} дн., "
+                      f"{sum(g for g, _ in winrates['all'].values()) // 10} матчей")
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! винрейты STRATZ не загрузились: {e}", file=sys.stderr)
+
     # Immortal-статистика заранее: по ней видно, на каких позициях героя играют
     imm_all, want = {}, set()
     if use_stratz:
@@ -328,11 +340,22 @@ def main():
             time.sleep(1.2)
         pro_cnt = Counter((r["hero_id"], r.get("pos")) for r in rows if r.get("pos"))
         wanted, popular = [], []
-        for hid, imm in imm_all.items():
-            tot = sum(v["games"] for v in imm.values()) or 1
-            for pos, v in imm.items():
-                if v["games"] / tot >= 0.1:
+        # на каких позициях героя играют: из дневной статистики Immortal (надёжнее недельной — та бывает пустой)
+        pos_games = {}
+        if winrates:
+            for pos in range(1, 6):
+                for hid, (g_, _) in winrates.get(pos, {}).items():
+                    pos_games.setdefault(hid, {})[pos] = g_
+        if not pos_games:
+            pos_games = {hid: {pos: v["games"] for pos, v in imm.items()} for hid, imm in imm_all.items()}
+        for hid, by_pos in pos_games.items():
+            if only and hid not in only:
+                continue
+            tot = sum(by_pos.values()) or 1
+            for pos, g_ in by_pos.items():
+                if g_ / tot >= 0.1:
                     (wanted if pro_cnt[(hid, pos)] < PUB_MIN else popular).append((hid, pos))
+        print(f"  позиции для пабов: {len(wanted)} с малым числом про-игр, {len(popular)} остальных")
         want = set(wanted) | (set(popular) if few_pro else set())
         try:
             # сначала позиции, где про-игр мало, потом остальные популярные (для списка пабов)
@@ -361,18 +384,6 @@ def main():
             (OUT / "solo.json").write_text(json.dumps(ladder.solo_stats(lad), separators=(",", ":")))
         except Exception as e:  # noqa: BLE001
             print(f"  ! лидерборд не загрузился: {e}", file=sys.stderr)
-
-    # винрейты Immortal без перекоса: сводная статистика STRATZ по дням после патча
-    winrates = None
-    if use_stratz and patch_ts:
-        first_full_day = (int(patch_ts) // 86400 + 1) * 86400
-        try:
-            winrates = stratz.hero_winrates(first_full_day)
-            if winrates:
-                print(f"Винрейты Immortal (STRATZ): {winrates['days']} дн., "
-                      f"{sum(g for g, _ in winrates['all'].values()) // 10} матчей")
-        except Exception as e:  # noqa: BLE001
-            print(f"  ! винрейты STRATZ не загрузились: {e}", file=sys.stderr)
 
     fb_all = {}
     for r in rows:
