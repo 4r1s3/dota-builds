@@ -132,17 +132,17 @@ async function showHero(id, pos) {
       <div class="vm">${meta}</div>${players && players.length ? `<div class="vp">Брали: ${players.map(esc).join(", ")}</div>` : ""}</div>`;
   const cost = its => its.reduce((s, i) => s + ((DB.items[i.key] || {}).cost || 0) * i.count, 0);
   const sets = (d.startSets || []);
-  const biased = false;  // винрейты считаются только по честным играм; где их мало — приходит null и не показывается
+  const biased = !SHOW_ITEM_WR;
   const wrTxt = (w, pre = ", винрейт ") => biased || w == null ? "" : pre + pct(w);
-  const setMeta = v => `<b>${v.games}</b> из ${d.games} игр (${pct(v.share)})${v.wr == null ? "" : ` · винрейт <b>${pct(v.wr)}</b>`} · ${v.cost} из 600 золота`;
+  const setMeta = v => `<b>${v.games}</b> из ${d.games} игр (${pct(v.share)})${v.wr == null || !SHOW_ITEM_WR ? "" : ` · винрейт <b>${pct(v.wr)}</b>`} · ${v.cost} из 600 золота`;
   const variants = sets.slice(0, 2).map((v, i) => setCard(i ? "Ситуативный" : "Основной закуп", v.items, setMeta(v), v.players, i ? "" : "main", v)).join("");
   const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр, дошедших до этой минуты${wrTxt(c.wr, ", винрейт с ним ")}">
       <div class="pic">${icon(c.key)}<span class="step">${i + 1}</span></div>
-      <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр${c.wr != null ? ` · <span class="${c.wr >= .53 ? "g" : c.wr <= .47 ? "r" : ""}">вр ${pct(c.wr)}</span>` : ""}</div>
+      <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр${c.wr != null && SHOW_ITEM_WR ? ` · <span class="${c.wr >= .53 ? "g" : c.wr <= .47 ? "r" : ""}">вр ${pct(c.wr)}</span>` : ""}</div>
       ${c.alt ? `<div class="alt" data-tip="Вместо ${nm(c.key)} в этом месте берут ${nm(c.alt.key)}: ${pct(c.alt.share)} игр, ~${mmss(c.alt.time)}${wrTxt(c.alt.wr)}. Вместе их почти не покупают — выбирай по игре">
         <span>или</span><div class="pic">${icon(c.alt.key)}</div><div class="nm">${nm(c.alt.key)}</div><div class="sub">${pct(c.alt.share)} игр</div></div>` : ""}</div>`).join("");
   const sit = d.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, берут в ${pct(c.share)} игр${wrTxt(c.wr)} (${c.n} игр)">
-      <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин${c.wr != null ? ` · <span class="${c.wr >= .53 ? "g" : c.wr <= .47 ? "r" : ""}">вр ${pct(c.wr)}</span>` : ""}</div></div>`).join("");
+      <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин${c.wr != null && SHOW_ITEM_WR ? ` · <span class="${c.wr >= .53 ? "g" : c.wr <= .47 ? "r" : ""}">вр ${pct(c.wr)}</span>` : ""}</div></div>`).join("");
 
   const th = DB.meta.thresholds;
   // на свежем патче про-игр может ещё не быть — тогда показываем Immortal-пабы
@@ -159,7 +159,7 @@ async function showHero(id, pos) {
     <div class="items">${start || '<span class="stats">—</span>'}</div>
     <h2>Основной билд — по порядку покупки</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
     <h2>Ситуативные предметы — по популярности</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
-    <div class="legend">«вр» — винрейт с предметом или талантом. Считается только по играм, отобранным без оглядки на исход (вся история топ-игроков лидерборда и про-матчи), и показывается, если таких игр от 15. Доля предмета — среди игр, которые дожили до времени его покупки.</div>
+    ${SHOW_ITEM_WR ? `div class="legend">«вр» — винрейт с предметом или талантом. Считается только по играм, отобранным без оглядки на исход (вся история топ-игроков лидерборда и про-матчи), и показывается, если таких игр от 15. Доля предмета — среди игр, которые дожили до времени его покупки.</div>` : ""}
     <h2>${usePub ? "Игры Immortal-пабов" : "Про-игры"}</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда, под игрой написано почему · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
     <div class="pro">${games || `<div class="stats">${usePub ? "Пабов на этой позиции пока нет." : "Про-игр на этой позиции нет."}</div>`}</div>`;
@@ -242,7 +242,7 @@ function talentRows(d) {
   return [...d.talents].reverse().map(t => {
     const [R, L] = t.options; // в игре первый талант уровня — справа
     const opt = o => !o ? "<div></div>" : `<div class="topt ${t.sample && o.pick >= .5 ? "pick" : ""}">
-      <span class="pc" data-tip="${t.sample ? `берут в ${pct(o.pick)} игр` : ""}${o.wr != null ? ` · винрейт ${pct(o.wr)}` : ""}">${t.sample ? pct(o.pick) : "–"}${o.wr != null ? `<small class="twr ${o.wr >= .53 ? "g" : o.wr <= .47 ? "r" : ""}">вр ${pct(o.wr)}</small>` : ""}</span>${esc(talentName(o.name))}
+      <span class="pc" data-tip="${t.sample ? `берут в ${pct(o.pick)} игр` : ""}${o.wr != null && SHOW_ITEM_WR ? ` · винрейт ${pct(o.wr)}` : ""}">${t.sample ? pct(o.pick) : "–"}${o.wr != null && SHOW_ITEM_WR ? `<small class="twr ${o.wr >= .53 ? "g" : o.wr <= .47 ? "r" : ""}">вр ${pct(o.wr)}</small>` : ""}</span>${esc(talentName(o.name))}
       <div class="bar" style="width:${o.pick * 100}%"></div></div>`;
     return `<div class="trow">${opt(L)}<div class="lv" ${t.fromPro ? 'data-tip="По этому уровню у STRATZ нет полных данных — показаны про-матчи"' : ""}>${t.level}${t.fromPro ? "*" : ""}</div>${opt(R)}</div>`;
   }).join("");
@@ -417,7 +417,8 @@ let META_PERIOD = null;
 let META_GAMES = "all";  // "all" — все игры Immortal (STRATZ), "solo" — только матчи, где все 10 в соло
 let SOLO = null;
 let META_SHOW_RARE = false;
-const MIN_TIER_GAMES = 150;  // меньше игр — тир не присваиваем и по умолчанию не показываем: слишком случайно
+const MIN_TIER_GAMES = 150;
+const SHOW_ITEM_WR = false;  // винрейты предметов, талантов и закупов пока скрыты (данных за патч мало)  // меньше игр — тир не присваиваем и по умолчанию не показываем: слишком случайно
 // Нижняя граница доверительного интервала Уилсона: винрейт с поправкой на число игр.
 // 3 победы из 3 игр не должны стоять выше 60% на сотне игр.
 function wilson(w, n, z = 1.64) {
