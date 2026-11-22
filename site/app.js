@@ -7,7 +7,8 @@ const MIN_SAMPLE = 8;
 const PT_LEVEL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 18, 20, 25];
 let DB = null;
 const HERO_BY_ID = {};
-let SRC = (() => { try { return localStorage.getItem("src") || "imm"; } catch { return "imm"; } })();
+// источник билда: "pub" — Immortal-пабы (топ лидерборда + Immortal), "pro" — про-матчи
+let SRC = (() => { try { const v = localStorage.getItem("src"); return v === "pro" ? "pro" : "pub"; } catch { return "pub"; } })();
 const cache = {};
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -74,7 +75,7 @@ async function loadHero(id) {
   return cache[id];
 }
 function bestPos(h) {
-  const e = Object.entries(SRC === "imm" && h.imm && Object.keys(h.imm).length ? h.imm : h.positions);
+  const e = Object.entries(SRC === "pub" && h.pubs && Object.keys(h.pubs).length ? h.pubs : h.positions);
   return e.length ? +e.sort((a, b) => b[1] - a[1])[0][0] : 1;
 }
 function itemTile(key, extra = "", cls = "it", tip = "") {
@@ -88,37 +89,28 @@ async function showHero(id, pos) {
   const data = await loadHero(id);
   pos = pos && data.positions[pos] ? pos : bestPos(hero);
   const raw = data.positions[pos];
-  const useImm = SRC === "imm" && raw && raw.imm;
-  const d = raw && (useImm ? {
-    ...raw, games: raw.imm.games, wr: raw.imm.wr, gpm: raw.gpm,
-    start: raw.imm.start.length ? raw.imm.start : raw.start,
-    core: raw.imm.core.length ? raw.imm.core : raw.core,
-    situational: raw.imm.core.length ? raw.imm.situational : raw.situational,
-    itemsFromPro: !raw.imm.core.length,
-    talents: raw.talents.map((t, i) => {
-      const it = raw.imm.talents[i + 1] || {};
-      if (Object.keys(it).length < Math.min(2, t.options.length)) return {...t, fromPro: true};
-      return {...t, sample: 1,
-        options: t.options.map(o => ({...o, pick: (it[o.name] || {}).pick || 0, wr: (it[o.name] || {}).wr}))};
-    }),
-  } : raw);
+  const pubOk = raw && raw.pub && raw.pub.games;
+  const proOk = raw && raw.games;
+  // выбранный источник; если в нём нет данных на этой позиции — показываем другой
+  const usePub = pubOk && (SRC === "pub" || !proOk);
+  const d = raw && (usePub ? {...raw.pub, immWr: raw.immWr, immGames: raw.immGames} : raw);
   history.replaceState(history.state, "", `#h${id}-${pos}`);
   setView("card");
   const card = $("#card");
 
   const tabs = [1, 2, 3, 4, 5].map(p => {
-    const n = hero.positions[p] || 0, im = (hero.imm || {})[p] || 0;
-    const has = n || im;
-    const cnt = SRC === "imm" && hero.imm ? (im ? `${(im / 1000).toFixed(1)}k` : "0") : n;
+    const n = hero.positions[p] || 0, pb = (hero.pubs || {})[p] || 0;
+    const has = n || pb >= 10;
+    const cnt = SRC === "pub" ? pb : n;
     return `<button class="tab ${p === pos ? "on" : ""} ${has ? "" : "empty"}" ${has ? `data-pos="${p}"` : "disabled"}>${POS[p]} <small>${cnt}</small></button>`;
   }).join("");
-  const anyImm = hero.imm && Object.keys(hero.imm).length;
-  const srcSw = anyImm ? `<div class="src">Статистика:
-    <button class="sbtn ${SRC === "imm" ? "on" : ""}" data-src="imm">Divine/Immortal пабы</button>
-    <button class="sbtn ${SRC === "pro" ? "on" : ""}" data-src="pro">Про-матчи</button></div>` : "";
+  const pubN = pubOk ? raw.pub.games : 0, proN = proOk ? raw.games : 0;
+  const srcSw = `<div class="src">Билд по:
+    <button class="sbtn ${usePub ? "on" : ""}" data-src="pub" ${pubN ? "" : "disabled"}>Immortal-пабы <small>${pubN}</small></button>
+    <button class="sbtn ${!usePub ? "on" : ""}" data-src="pro" ${proN ? "" : "disabled"}>Про-игроки <small>${proN}</small></button></div>`;
 
   if (!d) {
-    card.innerHTML = head(hero, null) + srcSw + `<div class="tabs">${tabs}</div><div class="empty-msg">Нет про-матчей на этом герое за последние ${DB.meta.days} дн.</div>`;
+    card.innerHTML = head(hero, null) + srcSw + `<div class="tabs">${tabs}</div><div class="empty-msg">Нет игр на этой позиции.</div>`;
     return bind(hero);
   }
 
@@ -139,57 +131,44 @@ async function showHero(id, pos) {
       <div class="vitems">${vrow(v.after)}</div>` : ""}
       <div class="vm">${meta}</div>${players && players.length ? `<div class="vp">Брали: ${players.map(esc).join(", ")}</div>` : ""}</div>`;
   const cost = its => its.reduce((s, i) => s + ((DB.items[i.key] || {}).cost || 0) * i.count, 0);
-  const sets = (raw.startSets || []);
-  // в «гайдовых» пабах герой почти всегда выиграл — показывать винрейт предметов/закупов там нечестно
-  const biased = raw.winsBiased;
+  const sets = (d.startSets || []);
+  const biased = false;  // винрейты считаются только по честным играм; где их мало — приходит null и не показывается
   const wrTxt = (w, pre = ", винрейт ") => biased || w == null ? "" : pre + pct(w);
-  const setMeta = v => `<b>${v.games}</b> из ${raw.games} игр (${pct(v.share)})${biased ? "" : ` · винрейт <b>${pct(v.wr)}</b>`} · ${v.cost} из 600 золота`;
-  let variants;
-  if (useImm && raw.imm.startSet && raw.imm.startSet.length) {
-    variants = setCard("Основной закуп", raw.imm.startSet,
-      `то, что берут больше чем в половине из ${raw.imm.games.toLocaleString("ru-RU")} игр Divine/Immortal · ${cost(raw.imm.startSet)} из 600 золота`, null, "main")
-      + (sets[0] ? setCard("Ситуативный — как берут про-игроки", sets[0].items, setMeta(sets[0]), sets[0].players, "", sets[0]) : "");
-  } else {
-    variants = sets.slice(0, 2).map((v, i) => setCard(i ? "Ситуативный" : "Основной закуп", v.items, setMeta(v), v.players, i ? "" : "main", v)).join("");
-  }
-  const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр${wrTxt(c.wr, ", винрейт с ним ")}">
+  const setMeta = v => `<b>${v.games}</b> из ${d.games} игр (${pct(v.share)})${v.wr == null ? "" : ` · винрейт <b>${pct(v.wr)}</b>`} · ${v.cost} из 600 золота`;
+  const variants = sets.slice(0, 2).map((v, i) => setCard(i ? "Ситуативный" : "Основной закуп", v.items, setMeta(v), v.players, i ? "" : "main", v)).join("");
+  const core = d.core.map((c, i) => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, берут в ${pct(c.share)} игр, дошедших до этой минуты${wrTxt(c.wr, ", винрейт с ним ")}">
       <div class="pic">${icon(c.key)}<span class="step">${i + 1}</span></div>
-      <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр</div>
+      <div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр${c.wr != null ? ` · <span class="${c.wr >= .53 ? "g" : c.wr <= .47 ? "r" : ""}">вр ${pct(c.wr)}</span>` : ""}</div>
       ${c.alt ? `<div class="alt" data-tip="Вместо ${nm(c.key)} в этом месте берут ${nm(c.alt.key)}: ${pct(c.alt.share)} игр, ~${mmss(c.alt.time)}${wrTxt(c.alt.wr)}. Вместе их почти не покупают — выбирай по игре">
         <span>или</span><div class="pic">${icon(c.alt.key)}</div><div class="nm">${nm(c.alt.key)}</div><div class="sub">${pct(c.alt.share)} игр</div></div>` : ""}</div>`).join("");
   const sit = d.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, берут в ${pct(c.share)} игр${wrTxt(c.wr)} (${c.n} игр)">
-      <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин</div></div>`).join("");
+      <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин${c.wr != null ? ` · <span class="${c.wr >= .53 ? "g" : c.wr <= .47 ? "r" : ""}">вр ${pct(c.wr)}</span>` : ""}</div></div>`).join("");
 
   const th = DB.meta.thresholds;
   // на свежем патче про-игр может ещё не быть — тогда показываем Immortal-пабы
-  const list = useImm ? (raw.pubs || []) : ((raw.pro && raw.pro.length) ? raw.pro : (raw.pubs || []));
+  const list = usePub ? (raw.pubs || []) : (raw.pro || []);
   const games = list.map(g => gameCard(g)).join("");
 
-  const maxOrder = useImm && raw.imm.maxOrder.length ? `<h2>Что качать в первую очередь (Immortal)</h2><div class="maxo">${raw.imm.maxOrder.map((m, i) => {
-      const a = DB.abilities[m.name] || {name: m.name};
-      return (i ? '<span class="arrow">›</span>' : "") + `<div class="sk" data-tip="${esc(a.name)} — вкачивают до максимума ~ к ${m.level} уровню">${a.img ? `<img loading="lazy" src="${a.img}" alt="">` : ""}${esc(a.name)}<br><b>макс к ${m.level} ур.</b></div>`;
-    }).join("")}</div>` : "";
-  card.innerHTML = head(hero, d, useImm) + srcSw + `<div class="tabs">${tabs}</div>
-    ${!useImm && d.games - (d.pubGames || 0) < MIN_SAMPLE ? `<div class="warn">Мало про-игр на этой позиции (${d.games - (d.pubGames || 0)})${d.pubGames ? `, поэтому добавлены ${d.pubGames} игр из Immortal-пабов` : ""}. Смотри на конкретные матчи ниже, статистика может быть случайной.</div>` : ""}
-    ${maxOrder}
-    <h2>Прокачка по уровням${useImm ? " (по про-игрокам)" : ""}</h2><div class="skills">${skills || '<span class="stats">Нет про-игр на этой позиции</span>'}</div>
+  card.innerHTML = head(hero, d, usePub) + srcSw + `<div class="tabs">${tabs}</div>
+    ${d.games < MIN_SAMPLE ? `<div class="warn">Мало ${usePub ? "паб" : "про"}-игр на этой позиции (${d.games}). Статистика может быть случайной${!usePub && pubN >= MIN_SAMPLE ? ` — переключись на «Immortal-пабы» (${pubN} игр)` : ""}.</div>` : ""}
+    <h2>Прокачка по уровням</h2><div class="skills">${skills || '<span class="stats">Нет данных</span>'}</div>
     <h2>Таланты</h2><div class="talents">${talents}</div>
     <h2>Стартовый закуп — готовые варианты</h2>
     <div class="variants">${variants || '<span class="stats">Нет данных</span>'}</div>
-    <div class="subh">Как часто берут каждый предмет на старте${useImm && raw.imm.start.length ? " (Divine/Immortal)" : ""}</div>
+    <div class="subh">Как часто берут каждый предмет на старте</div>
     <div class="items">${start || '<span class="stats">—</span>'}</div>
-    <h2>Основной билд — по порядку покупки${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
-    <h2>Ситуативные предметы — по популярности${d.itemsFromPro ? " (про-матчи)" : ""}</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
-    <h2>${useImm || !(raw.pro && raw.pro.length) ? "Игры Immortal-пабов" : "Про-игры"}</h2>
-    ${raw.winsBiased ? `<div class="legend">Immortal-пабы берутся из подборки STRATZ лучших игр на герое — это выигранные матчи. По ним хорошо видно, <i style="border:0;width:auto;height:auto">что</i> покупают и качают, но не винрейты, поэтому винрейты предметов здесь скрыты.</div>` : ""}
+    <h2>Основной билд — по порядку покупки</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
+    <h2>Ситуативные предметы — по популярности</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
+    <div class="legend">«вр» — винрейт с предметом или талантом. Считается только по играм, отобранным без оглядки на исход (вся история топ-игроков лидерборда и про-матчи), и показывается, если таких игр от 15. Доля предмета — среди игр, которые дожили до времени его покупки.</div>
+    <h2>${usePub ? "Игры Immortal-пабов" : "Про-игры"}</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда, под игрой написано почему · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
-    <div class="pro">${games || `<div class="stats">${useImm ? "Пабов на этой позиции пока нет — они докачиваются каждую ночь. Переключись на «Про-матчи»." : "Про-игр на этой позиции нет. Переключись на «Divine/Immortal пабы»."}</div>`}</div>`;
+    <div class="pro">${games || `<div class="stats">${usePub ? "Пабов на этой позиции пока нет." : "Про-игр на этой позиции нет."}</div>`}</div>`;
   bind(hero);
   window.scrollTo(0, 0);
 }
 function head(hero, d, imm) {
   return `<div class="head"><button class="back">← Герои</button><img src="${hero.img}" alt="">
-    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats">${d.immWr != null && d.immGames ? `винрейт в Immortal <b class="${d.immWr >= .52 ? "g" : d.immWr <= .48 ? "r" : ""}">${pct(d.immWr)}</b> (${d.immGames.toLocaleString("ru-RU")} игр на этой позиции) · ` : ""}билд по <b>${d.games.toLocaleString("ru-RU")}</b> ${imm ? "играм Divine/Immortal" : d.pubGames ? `играм (${d.games - d.pubGames} про + ${d.pubGames} Immortal-пабов)` : "про-играм"}${!d.winsBiased && !imm ? ` · винрейт в них <b>${pct(d.wr)}</b>` : ""}${!imm && d.gpm ? ` · GPM <b>${d.gpm}</b>` : ""}</div>` : ""}</div></div>`;
+    <div><h1>${esc(hero.name)}</h1>${d ? `<div class="stats">${d.immWr != null && d.immGames ? `винрейт в Immortal <b class="${d.immWr >= .52 ? "g" : d.immWr <= .48 ? "r" : ""}">${pct(d.immWr)}</b> (${d.immGames.toLocaleString("ru-RU")} игр на этой позиции) · ` : ""}билд по <b>${d.games.toLocaleString("ru-RU")}</b> ${imm ? "Immortal-пабам" : "про-играм"}${d.wr != null ? ` · винрейт в них <b>${pct(d.wr)}</b>` : ""}${d.gpm ? ` · GPM <b>${d.gpm}</b>` : ""}</div>` : ""}</div></div>`;
 }
 function bind(hero) {
   $("#card").querySelectorAll(".tab[data-pos]").forEach(b => b.onclick = () => showHero(hero.id, +b.dataset.pos));
@@ -263,7 +242,7 @@ function talentRows(d) {
   return [...d.talents].reverse().map(t => {
     const [R, L] = t.options; // в игре первый талант уровня — справа
     const opt = o => !o ? "<div></div>" : `<div class="topt ${t.sample && o.pick >= .5 ? "pick" : ""}">
-      <span class="pc" ${o.wr != null ? `data-tip="винрейт ${pct(o.wr)}"` : ""}>${t.sample ? pct(o.pick) : "–"}</span>${esc(talentName(o.name))}
+      <span class="pc" data-tip="${t.sample ? `берут в ${pct(o.pick)} игр` : ""}${o.wr != null ? ` · винрейт ${pct(o.wr)}` : ""}">${t.sample ? pct(o.pick) : "–"}${o.wr != null ? `<small class="twr ${o.wr >= .53 ? "g" : o.wr <= .47 ? "r" : ""}">вр ${pct(o.wr)}</small>` : ""}</span>${esc(talentName(o.name))}
       <div class="bar" style="width:${o.pick * 100}%"></div></div>`;
     return `<div class="trow">${opt(L)}<div class="lv" ${t.fromPro ? 'data-tip="По этому уровню у STRATZ нет полных данных — показаны про-матчи"' : ""}>${t.level}${t.fromPro ? "*" : ""}</div>${opt(R)}</div>`;
   }).join("");

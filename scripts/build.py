@@ -381,7 +381,7 @@ def main():
         rows.extend(pub_rows)
 
     # непредвзятые матчи топ-игроков лидерборда (пока только копим и пишем сводку в лог, на сайт не выводим)
-    if use_stratz and patch_ts:
+    if patch_ts:  # без токена ladder.fetch отдаёт кеш
         try:
             lad = ladder.fetch(patch_ts)
             hn_ = {int(k): v["localized_name"] for k, v in heroes.items()}
@@ -389,6 +389,18 @@ def main():
                 print("ЛАДДЕР:", line)
             OUT.mkdir(parents=True, exist_ok=True)
             (OUT / "solo.json").write_text(json.dumps(ladder.solo_stats(lad), separators=(",", ":")))
+            # игры лидерборда идут и в паб-билды: в них все исходы подряд, поэтому по ним считаем винрейты
+            have = {(r["match_id"], r["hero_id"]): r for r in rows if r.get("src") == "pub"}
+            added = 0
+            for r in ladder.to_rows(lad, item_ids, patch_ts):
+                old_r = have.get((r["match_id"], r["hero_id"]))
+                if old_r:
+                    old_r["lad"] = True
+                    continue
+                rows.append(r)
+                matches[r["match_id"]].append(r)
+                added += 1
+            print(f"  паб-билды: +{added} строк из игр лидерборда")
         except Exception as e:  # noqa: BLE001
             print(f"  ! лидерборд не загрузился: {e}", file=sys.stderr)
 
@@ -409,17 +421,32 @@ def main():
         if r.get("src") == "pub" and r.get("pos") and r["purchase_log"] not in (None, "", "[]"):
             pub_groups[(r["hero_id"], r["pos"])].append(r)
 
+    def fair(g):
+        """Игра без перекоса по исходу: про-матч или игра из истории игрока лидерборда (не «гайд» STRATZ)."""
+        return g.get("src", "pro") == "pro" or g.get("lad")
+
     def item_table(games_, fbs):
+        """Частота и время предметов. Доля считается среди игр, которые дожили до времени покупки:
+        дорогой предмет на 30-й минуте не «редкий», если половина игр закончилась на 25-й."""
         n_ = len(games_) or 1
         freq_ = Counter(k for fb in fbs for k in fb)
         times_ = defaultdict(list)
         for fb in fbs:
             for k, t in fb.items():
                 times_[k].append(t)
+        durs = [g.get("duration") or 10 ** 6 for g in games_]
         out_ = []
         for k, c in freq_.items():
-            won = sum(1 for g, fb in zip(games_, fbs) if k in fb and (g["player_slot"] < 128) == g["radiant_win"])
-            out_.append({"key": k, "share": round(c / n_, 2), "time": median(times_[k]), "wr": round(won / c, 2), "n": c})
+            t_ = median(times_[k])
+            reach = [i for i, d_ in enumerate(durs) if d_ >= (t_ or 0) + 180]
+            if len(reach) >= max(5, 0.25 * n_):
+                share = sum(1 for i in reach if k in fbs[i]) / len(reach)
+            else:
+                share = c / n_
+            fg = [g for g, fb in zip(games_, fbs) if k in fb and fair(g)]
+            won = sum(1 for g in fg if (g["player_slot"] < 128) == g["radiant_win"])
+            out_.append({"key": k, "share": round(min(1, share), 2), "time": t_,
+                         "wr": round(won / len(fg), 2) if len(fg) >= 15 else None, "n": c})
         return out_
 
     def add_alternatives(core_, item_stats_, fbs):
@@ -495,6 +522,8 @@ def main():
         return game_cards(gs, fbs, standard_ | local, gpm)
 
     START_GOLD = 600
+    PUB_BUILD_MIN = 10   # меньше паб-игр — отдельный паб-билд не строим
+    MIN_PRO_STD = 15     # от стольких про-игр «стандартный билд» для пометки необычных предметов берём из про
 
     def set_cost(cnt):
         return sum((items.get(k, {}).get("cost") or 0) * c for k, c in cnt.items())
@@ -520,8 +549,8 @@ def main():
     groups = defaultdict(list)
     for r in rows:
         if r.get("pos") and r["purchase_log"] and r["abilities"] not in (None, "", "{}"):
-            if r.get("src") == "pub" and (r["hero_id"], r["pos"]) not in want:
-                continue
+            if r.get("src") == "pub":
+                continue  # пабы — отдельный билд (pub_groups)
             groups[(r["hero_id"], r["pos"])].append(r)
 
     standards, med_gpms, hero_item_share, hero_tl = {}, {}, {}, {}
@@ -539,19 +568,20 @@ def main():
         talent_levels = {t["name"]: t["level"] for t in habil.get("talents", [])}
         hero_tl[hid] = talent_levels
         positions = {}
-        for pos in (1, 2, 3, 4, 5):
-            games = groups.get((hid, pos), [])
-            if not games:
-                continue
+
+        def make_build(games, pos):
             n = len(games)
-            wins = sum(1 for g in games if (g["player_slot"] < 128) == g["radiant_win"])
+            fg_ = [g for g in games if fair(g)]
+            wins = sum(1 for g in fg_ if (g["player_slot"] < 128) == g["radiant_win"])
             gpms = [g["gold_per_min"] for g in games if g["gold_per_min"]]
             med_gpm = median(gpms)
 
             # --- скиллы
             seqs, talent_picks = [], defaultdict(Counter)
+            t_fair, t_won = defaultdict(Counter), defaultdict(Counter)
             for g in games:
                 seq = []
+                g_fair, g_won = fair(g), (g["player_slot"] < 128) == g["radiant_win"]
                 for aid in pg_array(g["abilities"]):
                     nm = ab_name(aid)
                     if not nm or nm == "special_bonus_attributes":
@@ -560,6 +590,9 @@ def main():
                         lvl = talent_levels.get(nm)
                         if lvl:
                             talent_picks[lvl][nm] += 1
+                            if g_fair:
+                                t_fair[lvl][nm] += 1
+                                t_won[lvl][nm] += g_won
                         seq.append(nm)
                     elif nm in abilities:
                         if nm.endswith("_break") and nm[:-6] in abilities:
@@ -574,7 +607,9 @@ def main():
                 total = sum(talent_picks[lvl].values()) or 1
                 talents.append({
                     "level": [10, 15, 20, 25][lvl - 1],
-                    "options": [{"name": t, "pick": round(talent_picks[lvl][t] / total, 2)} for t in opts],
+                    "options": [{"name": t, "pick": round(talent_picks[lvl][t] / total, 2),
+                                 "wr": round(t_won[lvl][t] / t_fair[lvl][t], 2) if t_fair[lvl][t] >= 15 else None}
+                                for t in opts],
                     "sample": sum(talent_picks[lvl].values()),
                 })
 
@@ -615,7 +650,8 @@ def main():
             for combo, gs in sorted(start_sets.items(), key=lambda kv: -len(kv[1]))[:2]:
                 if len(gs) < 2 and start_variants:
                     break
-                won = sum(1 for g in gs if (g["player_slot"] < 128) == g["radiant_win"])
+                fgs = [g for g in gs if fair(g)]
+                won = sum(1 for g in fgs if (g["player_slot"] < 128) == g["radiant_win"])
                 by_cost = lambda i: -(items.get(i["key"], {}).get("cost") or 0) * i["count"]
                 its = sorted(({"key": k, "count": c} for k, c in combo), key=by_cost)
                 # что докупают в первую минуту после горна (самый частый вариант у этого набора)
@@ -625,38 +661,62 @@ def main():
                 players = [p for p, _ in Counter(g["pro_name"] for g in gs if g["pro_name"]).most_common(3)]
                 start_variants.append({
                     "items": its, "games": len(gs), "share": round(len(gs) / n, 2),
-                    "wr": round(won / len(gs), 2),
+                    "wr": round(won / len(fgs), 2) if len(fgs) >= 10 else None,
                     "cost": set_cost(dict(combo)),
                     "after": after_items, "afterGames": after_n if after_items else 0,
                     "players": players,
                 })
                 used_items.update(i["key"] for i in its + after_items)
             item_stats = item_table(games, first_buy)
-            hero_item_share[(hid, pos)] = {i["key"]: i["share"] for i in item_stats}
-            core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])
+            core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])[:7]
             situational = sorted([i for i in item_stats if 0.12 <= i["share"] < 0.4],
                                  key=lambda i: -i["share"])[:10]
             add_alternatives(core, item_stats, first_buy)
             standard = {i["key"] for i in core + situational} | {c["alt"]["key"] for c in core if c.get("alt")}
             used_items.update(i["key"] for i in start_items + core + situational)
             used_items.update(c["alt"]["key"] for c in core if c.get("alt"))
-            standards[(hid, pos)] = standard
-            med_gpms[(hid, pos)] = med_gpm
-            pro_only = [(g, fb) for g, fb in zip(games, first_buy) if g.get("src", "pro") == "pro"]
-            pro_games = game_cards([g for g, _ in pro_only], [fb for _, fb in pro_only], standard, med_gpm)
-            pub_games = pub_cards(hid, pos, standard)
+            build = {
+                "games": n, "wr": round(wins / len(fg_), 2) if len(fg_) >= 10 else None, "gpm": med_gpm,
+                "fairGames": len(fg_),
+                "skills": skill_seq, "skillsExact": skill_exact,
+                "talents": talents, "start": start_items, "startSets": start_variants, "core": core,
+                "situational": situational,
+            }
+            return build, standard, med_gpm, item_stats, first_buy
 
+        for pos in (1, 2, 3, 4, 5):
+            pro_g = groups.get((hid, pos), [])
+            pub_g = [g for g in pub_groups.get((hid, pos), []) if g["abilities"] not in (None, "", "{}")]
+            if not pro_g and len(pub_g) < PUB_BUILD_MIN:
+                continue
+            pro_b = pub_b = None
+            if pro_g:
+                pro_b, standard, med_gpm, item_stats, first_buy = make_build(pro_g, pos)
+                pro_games = game_cards(pro_g, first_buy, standard, med_gpm)
+            if len(pub_g) >= PUB_BUILD_MIN:
+                pub_b, p_std, p_gpm, p_stats, _ = make_build(pub_g, pos)
+            if pro_b and (pro_b["games"] >= MIN_PRO_STD or not pub_b):
+                base_std, base_gpm, base_stats = standard, med_gpm, item_stats
+            else:
+                base_std, base_gpm, base_stats = p_std, p_gpm, p_stats
+            hero_item_share[(hid, pos)] = {i["key"]: i["share"] for i in base_stats}
+            standards[(hid, pos)] = base_std
+            med_gpms[(hid, pos)] = base_gpm
+            if not pro_b:
+                pro_games = []
+                pro_b = {"games": 0, "wr": None, "gpm": None, "fairGames": 0, "skills": [], "skillsExact": 0,
+                         "talents": [{"level": [10, 15, 20, 25][l - 1], "sample": 0,
+                                      "options": [{"name": t, "pick": 0} for t, tl in talent_levels.items() if tl == l]}
+                                     for l in (1, 2, 3, 4)],
+                         "start": [], "startSets": [], "core": [], "situational": []}
             positions[pos] = {
-                "games": n, "wr": round(wins / n, 2), "gpm": med_gpm,
-                "pubGames": sum(1 for g in games if g.get("src") == "pub"),
-                # в «гайдовых» пабах герой почти всегда выиграл — винрейты предметов/закупов по ним бессмысленны
-                "winsBiased": any(g.get("src") == "pub" for g in games),
+                **pro_b,
+                "pub": pub_b,
+                "pubGames": len(pub_g),
                 "immWr": (lambda gw: round(gw[1] / gw[0], 3) if gw and gw[0] else None)(
                     (winrates or {}).get(pos, {}).get(hid)),
                 "immGames": ((winrates or {}).get(pos, {}).get(hid) or [0])[0],
-                "skills": skill_seq, "skillsExact": skill_exact,
-                "talents": talents, "start": start_items, "startSets": start_variants, "core": core,
-                "situational": situational, "pro": pro_games, "pubs": pub_games,
+                "pro": pro_games, "pubs": pub_cards(hid, pos, base_std),
             }
         if use_stratz:
             imm = imm_all.get(hid, {})

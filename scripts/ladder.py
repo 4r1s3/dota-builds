@@ -179,3 +179,30 @@ def solo_stats(matches):
                     out[p["h"]]["solo"][key][1] += won
     return {"matches": n, "solo": n_solo,
             "heroes": {h: {"all": dict(v["all"]), "solo": dict(v["solo"])} for h, v in out.items()}}
+
+
+def to_rows(matches, item_ids, min_start=0):
+    """Матчи лидерборда -> строки в формате build.py (как пабы), с пометкой lad: по ним честно считать винрейты."""
+    import json as _json
+    pos_map = {f"POSITION_{n}": n for n in range(1, 6)}
+    rows = []
+    for mid, m in matches.items():
+        if m.get("start", 0) < min_start:
+            continue
+        slot = {True: 0, False: 128}
+        for p in m.get("p") or []:
+            s = slot[bool(p["r"])]
+            slot[bool(p["r"])] += 1
+            log = [{"time": t, "key": item_ids.get(str(i))} for t, i in p.get("buy") or []]
+            log = [e for e in log if e["key"]]
+            rows.append({
+                "match_id": int(mid), "hero_id": p["h"], "player_slot": s, "pos": pos_map.get(p.get("pos")),
+                "kills": p.get("k"), "deaths": p.get("d"), "assists": p.get("a"),
+                "gold_per_min": p.get("gpm"), "net_worth": p.get("nw"),
+                "purchase_log": _json.dumps(log), "abilities": "{" + ",".join(str(a) for a in p.get("ab") or []) + "}",
+                "radiant_win": m["rw"], "start_time": m["start"], "duration": m["dur"],
+                "gold_adv": "{" + ",".join(str(x) for x in m.get("adv") or []) + "}",
+                "league": "Immortal паб", "pro_name": p.get("name"), "src": "pub", "lad": True,
+                "rank": m.get("rank"), "match_rank": m.get("rank"), "lb": p.get("lb"),
+            })
+    return rows
