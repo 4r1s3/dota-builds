@@ -357,6 +357,8 @@ def main():
             hn_ = {int(k): v["localized_name"] for k, v in heroes.items()}
             for line in ladder.summary(lad, hn_).splitlines():
                 print("ЛАДДЕР:", line)
+            OUT.mkdir(parents=True, exist_ok=True)
+            (OUT / "solo.json").write_text(json.dumps(ladder.solo_stats(lad), separators=(",", ":")))
         except Exception as e:  # noqa: BLE001
             print(f"  ! лидерборд не загрузился: {e}", file=sys.stderr)
 
@@ -832,7 +834,7 @@ def main():
                               "posTrend": {p_: tr[p_][h] for p_ in range(1, 6) if tr.get(p_, {}).get(h)},
                               "pos": {p_: {"games": winrates[p_].get(h, [0, 0])[0], "wins": winrates[p_].get(h, [0, 0])[1]}
                                       for p_ in range(1, 6) if winrates[p_].get(h)}})
-        meta_source = f"Immortal, STRATZ, {winrates['days']} дн. после патча"
+        meta_source = "все игры в ранге Immortal (STRATZ)"
     else:
         meta_matches = len(all_matches)
         meta_source = "про-матчи и Immortal-пабы"
@@ -840,8 +842,25 @@ def main():
                   "pick": round(v["games"] / max(1, len(all_matches)), 3),
                   "pos": {p_: {"games": g_, "wins": w_} for p_, (g_, w_) in v["pos"].items()}}
                  for h, v in meta_stat.items()]
+    # статистика по дням для выбора периода на сайте: «последние 8 дней» и «весь текущий патч»
+    daily = None
+    if use_stratz and patch_ts:
+        try:
+            first_full_day = (int(patch_ts) // 86400 + 1) * 86400
+            since = min(first_full_day, (int(time.time()) // 86400 - 9) * 86400)
+            daily = stratz.hero_daily(since)
+            if daily:
+                print(f"По дням: {len(daily['days'])} дн. для выбора периода")
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! статистика по дням не загрузилась: {e}", file=sys.stderr)
+    if daily:
+        for x in meta_list:
+            x["d"] = daily["data"].get(x["id"], {})
     (OUT / "meta.json").write_text(json.dumps({"matches": meta_matches, "source": meta_source, "updated": int(time.time()),
                                                "days": (winrates or {}).get("days", 0),
+                                               "dayList": (daily or {}).get("days", []),
+                                               "patchDay": (int(patch_ts) // 86400 + 1) * 86400 if patch_ts else 0,
+                                               "patch": patch_name,
                                                "pro": pro_match_count, "heroes": meta_list},
                                               ensure_ascii=False, separators=(",", ":")))
     hn = {int(k): v["localized_name"] for k, v in heroes.items()}

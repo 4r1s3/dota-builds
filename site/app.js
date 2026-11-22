@@ -434,6 +434,9 @@ function setView(v) {
 // ---------- мета: винрейт и популярность героев на текущем патче
 let META = null;
 let META_SORT = "power";
+let META_PERIOD = null;
+let META_GAMES = "all";  // "all" — все игры Immortal (STRATZ), "solo" — только матчи, где все 10 в соло
+let SOLO = null;
 // Нижняя граница доверительного интервала Уилсона: винрейт с поправкой на число игр.
 // 3 победы из 3 игр не должны стоять выше 60% на сотне игр.
 function wilson(w, n, z = 1.64) {
@@ -446,13 +449,45 @@ async function showMeta(pos) {
     const r = await fetch(`data/meta.json?v=${DB.meta.updated}`);
     META = r.ok ? await r.json() : {heroes: [], matches: 0};
   }
+  if (META_GAMES === "solo" && !SOLO) {
+    const r = await fetch(`data/solo.json?v=${DB.meta.updated}`);
+    SOLO = r.ok ? await r.json() : {matches: 0, solo: 0, heroes: {}};
+  }
+  const soloMode = META_GAMES === "solo";
   setView("meta");
-  const total = META.matches || 1;
+  // Период: «8 дней» или «весь текущий патч» (название патча подставляется само, после нового патча — переключится)
+  const days = META.dayList || [];
+  const hasDaily = days.length && META.heroes.some(h => h.d && h.d.all);
+  const patchAgeDays = (Date.now() / 1000 - (META.patchDay || 0)) / 86400;
+  if (!META_PERIOD) META_PERIOD = patchAgeDays < 8 ? "patch" : "8d";
+  let use = days.map(() => true);
+  if (hasDaily) {
+    use = META_PERIOD === "patch" ? days.map(d => d >= META.patchDay) : days.map((d, i) => i >= days.length - 8);
+  }
+  const sum = arr => (arr || []).reduce((acc, x, i) => use[i] ? [acc[0] + x[0], acc[1] + x[1]] : acc, [0, 0]);
+  let total = META.matches || 1;
+  if (hasDaily) total = Math.max(1, Math.round(META.heroes.reduce((t, h) => t + sum((h.d || {}).all)[0], 0) / 10));
+  if (soloMode) total = Math.max(1, SOLO.solo || 1);
   const rows = META.heroes.map(h => {
-    const s = pos ? (h.pos[pos] || {games: 0, wins: 0}) : h;
+    let games, wins, delta = null;
+    if (soloMode) {
+      const sh = (SOLO.heroes || {})[h.id] || {solo: {}, all: {}};
+      const k2 = pos ? String(pos) : "a";
+      [games, wins] = sh.solo[k2] || [0, 0];
+      const [ga, wa] = sh.all[k2] || [0, 0];
+      if (games && ga) delta = (wins / games - wa / ga) * 100;
+      const tr = null;
+      return {id: h.id, games, wins, wr: games ? wins / games : 0, pick: games / total, tr, delta, allGames: ga};
+    }
+    if (hasDaily) [games, wins] = sum((h.d || {})[pos ? String(pos) : "all"]);
+    else ({games, wins} = pos ? (h.pos[pos] || {games: 0, wins: 0}) : h);
     const tr = pos ? (h.posTrend || {})[pos] : h.trend;
-    return {id: h.id, games: s.games, wins: s.wins, wr: s.games ? s.wins / s.games : 0, pick: s.games / total, tr};
+    return {id: h.id, games, wins, wr: games ? wins / games : 0, pick: games / total, tr};
   }).filter(r => r.games > 0);
+  const usedDays = days.filter((d, i) => use[i]);
+  const fmtDay = ts => new Date(ts * 1000).toLocaleDateString("ru-RU", {day: "numeric", month: "short"});
+  const periodInfo = hasDaily && usedDays.length ? `${fmtDay(usedDays[0])} — ${fmtDay(usedDays[usedDays.length - 1])}` : "";
+  const mixed = hasDaily && META_PERIOD === "8d" && usedDays.some(d => d < META.patchDay);
   // Сила = насколько герой выигрывает × насколько он в мете.
   // 1) винрейт с поправкой на выборку: будто у героя есть ещё PRIOR игр с 50% — редкие герои не взлетают от случайности;
   // 2) множитель меты 0.6…1: героя, которого почти не берут, штрафуем до 40% (нишевый пик ≠ сильный герой).
@@ -480,8 +515,18 @@ async function showMeta(pos) {
   const tabs = [0, 1, 2, 3, 4, 5].map(p => `<button class="tab ${p === (pos || 0) ? "on" : ""}" data-mpos="${p}">${p ? POS[p] : "Все позиции"}</button>`).join("");
   const sortBtn = (k2, label, tip) => `<button class="sbtn ${META_SORT === k2 ? "on" : ""}" data-msort="${k2}" data-tip="${tip}">${label}</button>`;
   const fresh = DB.meta.freshPatch;
-  $("#metaview").innerHTML = `<h1 class="mh">Мета патча ${esc(DB.meta.patch)}</h1>
-    <div class="stats">${META.matches.toLocaleString("ru-RU")} матчей на этом патче · источник: ${esc(META.source || "про-матчи и Immortal-пабы")}${fresh ? " · патч свежий, цифры ещё могут сдвигаться" : ""}</div>
+  $("#metaview").innerHTML = `<h1 class="mh">Мета ${META_PERIOD === "8d" && hasDaily ? "за 8 дней" : "патча " + esc(DB.meta.patch)}</h1>
+    <div class="stats">источник: ${esc(META.source || "про-матчи и Immortal-пабы")}${fresh ? " · патч свежий, цифры ещё могут сдвигаться" : ""}${hasDaily ? "" : ` · ${META.matches.toLocaleString("ru-RU")} матчей`}</div>
+    ${`<div class="src">Игры:
+      <button class="sbtn ${!soloMode ? "on" : ""}" data-mgames="all" data-tip="Все игры в ранге Immortal">Все</button>
+      <button class="sbtn ${soloMode ? "on" : ""}" data-mgames="solo" data-tip="Только матчи, где все 10 игроков играли без пати (матчи топ-игроков лидерборда)">Только соло</button>
+      ${soloMode ? `<span class="stats">${(SOLO.solo || 0).toLocaleString("ru-RU")} соло-матчей из ${(SOLO.matches || 0).toLocaleString("ru-RU")} матчей топ-игроков лидерборда, патч ${esc(DB.meta.patch)}</span>` : ""}</div>`}
+    ${soloMode ? `<div class="legend">Справа от винрейта — разница с теми же матчами топ-игроков, включая пати. Плюс — герой в соло-играх выигрывает чаще.</div>` : ""}
+    ${hasDaily && !soloMode ? `<div class="src">Период:
+      <button class="sbtn ${META_PERIOD === "8d" ? "on" : ""}" data-mper="8d">Последние 8 дней</button>
+      <button class="sbtn ${META_PERIOD === "patch" ? "on" : ""}" data-mper="patch">Патч ${esc(META.patch || DB.meta.patch)}</button>
+      <span class="stats">${periodInfo} · ${total.toLocaleString("ru-RU")} матчей Immortal</span></div>
+      ${mixed ? `<div class="legend">В эти 8 дней попадают и игры прошлого патча — для свежего патча точнее «Патч ${esc(META.patch || DB.meta.patch)}».</div>` : ""}` : ""}
     <div class="tabs">${tabs}</div>
     <div class="src">Сортировать:
       ${sortBtn("power", "Тир", "Учитывает и винрейт, и то, насколько герой в мете: S — сильный и его часто берут, D — проигрывает. Редкого героя с высоким винрейтом немного штрафуем")}
@@ -497,7 +542,7 @@ async function showMeta(pos) {
         return `<a class="mrow ${few ? "few" : ""}" href="#h${r.id}${pos ? "-" + pos : ""}" ${few ? 'data-tip="Мало игр — винрейт может быть случайным"' : ""}>
           <span class="tier t${r.few ? "Q" : r.tier}" data-tip="${r.few ? `Мало игр (${r.games}) — тир не присваиваем, винрейт может быть случайным\n` : ""}Сила ${r.power >= 0 ? "+" : ""}${r.power.toFixed(1)}: винрейт с поправкой на выборку ${(r.wrAdj * 100).toFixed(1)}%, множитель меты ×${r.metaMul.toFixed(2)}">${r.tier}</span>
           <span class="mhero">${heroIcon(r.id, "hc")}${esc(h.name)}</span>
-          <span class="mwr" ${SHOW_TREND && r.tr ? `data-tip="За последний день винрейт ${r.tr.wr >= 0 ? "+" : ""}${r.tr.wr} п.п. к предыдущим дням (${r.tr.last} игр)"` : ""}><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b>${r.tr ? arrow(r.tr.wr) : ""}<i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
+          <span class="mwr" ${r.delta != null ? `data-tip="В соло-матчах ${(r.wr * 100).toFixed(1)}%, во всех матчах этого набора ${(r.wr * 100 - r.delta).toFixed(1)}% (${r.allGames} игр)"` : ""} ${SHOW_TREND && r.tr ? `data-tip="За последний день винрейт ${r.tr.wr >= 0 ? "+" : ""}${r.tr.wr} п.п. к предыдущим дням (${r.tr.last} игр)"` : ""}><b class="${wrCls}">${(r.wr * 100).toFixed(1)}%</b>${r.delta != null ? `<i class="${r.delta >= 0 ? "up" : "dn"}">${r.delta >= 0 ? "+" : "−"}${Math.abs(r.delta).toFixed(1)}</i>` : ""}${r.tr ? arrow(r.tr.wr) : ""}<i class="wbar"><i style="width:${Math.round(r.wr * 100)}%"></i></i></span>
           <span class="mpk" ${SHOW_TREND && r.tr ? `data-tip="За последний день популярность ${r.tr.pick >= 0 ? "+" : ""}${r.tr.pick} п.п."` : ""}>${(r.pick * 100).toFixed(1)}%${r.tr ? arrow(r.tr.pick) : ""}<i class="pkbar"><i style="width:${Math.round(r.pick / maxPick * 100)}%"></i></i></span>
           <span class="mg">${r.games}</span></a>`;
       }).join("") || '<div class="empty-msg">Пока нет игр</div>'}
@@ -509,6 +554,8 @@ async function showMeta(pos) {
     showMeta(p);
   });
   $("#metaview").querySelectorAll("[data-msort]").forEach(b => b.onclick = () => { META_SORT = b.dataset.msort; showMeta(pos); });
+  $("#metaview").querySelectorAll("[data-mper]").forEach(b => b.onclick = () => { META_PERIOD = b.dataset.mper; showMeta(pos); });
+  $("#metaview").querySelectorAll("[data-mgames]").forEach(b => b.onclick = () => { META_GAMES = b.dataset.mgames; showMeta(pos); });
 }
 
 // ---------- подсказки

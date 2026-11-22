@@ -68,7 +68,7 @@ def _compact(m):
             "rank": m.get("rank"), "adv": m.get("radiantNetworthLeads") or [], "p": ps}
 
 
-def fetch(min_start, budget=320, top=300, per_player=20):
+def fetch(min_start, budget=340, top=1500, per_player=20):
     """Докачивает новые рейтинговые матчи топ-игроков и возвращает весь кеш матчей {id: compact}."""
     token = os.environ.get("STRATZ_TOKEN")
     cache = _load()
@@ -77,13 +77,16 @@ def fetch(min_start, budget=320, top=300, per_player=20):
     calls = 0
     # 1) топ лидерборда по регионам
     accounts = {}
+    # у самого топа (~8500+ MMR) рейтинговые игры — Immortal Draft, они закрыты; поэтому берём места пошире
     for div in DIVISIONS:
-        q = f'{{ leaderboard {{ season(request: {{ leaderBoardDivision: {div} }}) {{ players(take: {top}, skip: 0) {{ steamAccountId rank }} }} }} }}'
-        d = stratz.gql(q, {}, token, tries=2)
-        calls += 1
-        time.sleep(1.0)
-        for p in (((d or {}).get("leaderboard") or {}).get("season") or {}).get("players") or []:
-            accounts[str(p["steamAccountId"])] = (div, p["rank"])
+        for skip in range(0, top, 300):
+            q = (f'{{ leaderboard {{ season(request: {{ leaderBoardDivision: {div} }}) '
+                 f'{{ players(take: 300, skip: {skip}) {{ steamAccountId rank }} }} }} }}')
+            d = stratz.gql(q, {}, token, tries=2)
+            calls += 1
+            time.sleep(1.0)
+            for p in (((d or {}).get("leaderboard") or {}).get("season") or {}).get("players") or []:
+                accounts[str(p["steamAccountId"])] = (div, p["rank"])
     # 2) история: сначала те, кого давно не проверяли
     order = sorted(accounts, key=lambda a: cache["players"].get(a, 0))
     from collections import Counter
@@ -152,3 +155,27 @@ def summary(matches, hero_names, min_games=40):
         lines.append(f"{names[st]}: лучший винрейт (≥{min_games} игр) — " + ", ".join(
             f"{hero_names.get(h, h)} {w / g:.0%} ({g})" for h, (g, w) in good))
     return "\n".join(lines)
+
+
+def solo_stats(matches):
+    """Статистика героев: все матчи набора и только матчи, где все 10 игроков играли соло."""
+    from collections import defaultdict
+    POS = {"POSITION_1": "1", "POSITION_2": "2", "POSITION_3": "3", "POSITION_4": "4", "POSITION_5": "5"}
+    out = defaultdict(lambda: {"all": defaultdict(lambda: [0, 0]), "solo": defaultdict(lambda: [0, 0])})
+    n = n_solo = 0
+    for m in matches.values():
+        solo = all(p["party"] is None for p in m["p"])
+        n += 1
+        n_solo += solo
+        for p in m["p"]:
+            won = int(p["r"] == m["rw"])
+            for key in ("a", POS.get(p.get("pos"))):
+                if not key:
+                    continue
+                out[p["h"]]["all"][key][0] += 1
+                out[p["h"]]["all"][key][1] += won
+                if solo:
+                    out[p["h"]]["solo"][key][0] += 1
+                    out[p["h"]]["solo"][key][1] += won
+    return {"matches": n, "solo": n_solo,
+            "heroes": {h: {"all": dict(v["all"]), "solo": dict(v["solo"])} for h, v in out.items()}}
