@@ -144,6 +144,28 @@ async function showHero(id, pos) {
   const sit = d.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, берут в ${pct(c.share)} игр${wrTxt(c.wr)} (${c.n} игр)">
       <div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин${c.wr != null && SHOW_ITEM_WR ? ` · <span class="${c.wr >= .53 ? "g" : c.wr <= .47 ? "r" : ""}">вр ${pct(c.wr)}</span>` : ""}</div></div>`).join("");
 
+  // краткая сводка: только иконки, без цифр — как в постах «смотрим билд»
+  const qi = (key, n = 1) => `<span class="qi" data-tip="${nm(key)}">${icon(key)}${n > 1 ? `<b>×${n}</b>` : ""}</span>`;
+  const main = sets[0];
+  const qStart = main ? main.items.map(i => qi(i.key, i.count)).join("") +
+    (main.after && main.after.length ? `<span class="qsep" data-tip="докупают в первую минуту после горна">+</span>` + main.after.map(i => qi(i.key, i.count)).join("") : "")
+    : d.start.slice(0, 6).map(i => qi(i.key, i.count)).join("");
+  const qCore = d.core.map(c => c.alt
+    ? `<span class="qor">${qi(c.key)}<small>или</small>${qi(c.alt.key)}</span>` : qi(c.key)).join(`<span class="qarr">›</span>`);
+  const qSit = d.situational.slice(0, 7).map(c => qi(c.key)).join("");
+  const qTal = (d.talents || []).filter(t => t.sample).map(t => {
+    const o = t.options.slice().sort((a, b) => b.pick - a.pick)[0];
+    return `<span class="qt" data-tip="берут в ${pct(o.pick)} игр"><b>${t.level}</b>${esc(talentName(o.name))}</span>`;
+  }).join("");
+  const quick = `<div class="quick">
+    ${qStart ? `<div class="qrow"><span class="ql">Старт</span><div class="qis">${qStart}</div></div>` : ""}
+    ${qCore ? `<div class="qrow"><span class="ql">Билд</span><div class="qis">${qCore}</div></div>` : ""}
+    ${qSit ? `<div class="qrow"><span class="ql">Иногда берут</span><div class="qis">${qSit}</div></div>` : ""}
+    ${skills ? `<div class="qrow"><span class="ql">Прокачка</span><div class="skills qsk">${skills}</div></div>` : ""}
+    ${qTal ? `<div class="qrow"><span class="ql">Таланты</span><div class="qts">${qTal}</div></div>` : ""}
+  </div>
+  <button class="morebtn">${DETAIL ? "Скрыть подробности ▴" : "Подробнее: проценты, варианты закупа, игры ▾"}</button>`;
+
   const th = DB.meta.thresholds;
   // на свежем патче про-игр может ещё не быть — тогда показываем Immortal-пабы
   const list = usePub ? (raw.pubs || []) : (raw.pro || []);
@@ -151,6 +173,8 @@ async function showHero(id, pos) {
 
   card.innerHTML = head(hero, d, usePub) + srcSw + `<div class="tabs">${tabs}</div>
     ${d.games < MIN_SAMPLE ? `<div class="warn">Мало ${usePub ? "паб" : "про"}-игр на этой позиции (${d.games}). Статистика может быть случайной${!usePub && pubN >= MIN_SAMPLE ? ` — переключись на «Immortal-пабы» (${pubN} игр)` : ""}.</div>` : ""}
+    ${quick}
+    <div class="detail" ${DETAIL ? "" : "hidden"}>
     <h2>Прокачка по уровням</h2><div class="skills">${skills || '<span class="stats">Нет данных</span>'}</div>
     <h2>Таланты</h2><div class="talents">${talents}</div>
     <h2>Стартовый закуп — готовые варианты</h2>
@@ -159,11 +183,18 @@ async function showHero(id, pos) {
     <div class="items">${start || '<span class="stats">—</span>'}</div>
     <h2>Основной билд — по порядку покупки</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
     <h2>Ситуативные предметы — по популярности</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
-    ${SHOW_ITEM_WR ? `div class="legend">«вр» — винрейт с предметом или талантом. Считается только по играм, отобранным без оглядки на исход (вся история топ-игроков лидерборда и про-матчи), и показывается, если таких игр от 15. Доля предмета — среди игр, которые дожили до времени его покупки.</div>` : ""}
+    ${SHOW_ITEM_WR ? `<div class="legend">«вр» — винрейт с предметом или талантом. Считается только по играм, отобранным без оглядки на исход (вся история топ-игроков лидерборда и про-матчи), и показывается, если таких игр от 15. Доля предмета — среди игр, которые дожили до времени его покупки.</div>` : ""}
     <h2>${usePub ? "Игры Immortal-пабов" : "Про-игры"}</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда, под игрой написано почему · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>
-    <div class="pro">${games || `<div class="stats">${usePub ? "Пабов на этой позиции пока нет." : "Про-игр на этой позиции нет."}</div>`}</div>`;
+    <div class="pro">${games || `<div class="stats">${usePub ? "Пабов на этой позиции пока нет." : "Про-игр на этой позиции нет."}</div>`}</div>
+    </div>`;
   bind(hero);
+  card.querySelector(".morebtn").onclick = () => {
+    DETAIL = !DETAIL;
+    try { localStorage.setItem("detail", DETAIL ? "1" : ""); } catch {}
+    card.querySelector(".detail").hidden = !DETAIL;
+    card.querySelector(".morebtn").textContent = DETAIL ? "Скрыть подробности ▴" : "Подробнее: проценты, варианты закупа, игры ▾";
+  };
   window.scrollTo(0, 0);
 }
 function head(hero, d, imm) {
@@ -418,7 +449,8 @@ let META_GAMES = "all";  // "all" — все игры Immortal (STRATZ), "solo" 
 let SOLO = null;
 let META_SHOW_RARE = false;
 const MIN_TIER_GAMES = 150;
-const SHOW_ITEM_WR = false;  // винрейты предметов, талантов и закупов пока скрыты (данных за патч мало)  // меньше игр — тир не присваиваем и по умолчанию не показываем: слишком случайно
+const SHOW_ITEM_WR = false;
+let DETAIL = (() => { try { return !!localStorage.getItem("detail"); } catch { return false; } })();  // винрейты предметов, талантов и закупов пока скрыты (данных за патч мало)  // меньше игр — тир не присваиваем и по умолчанию не показываем: слишком случайно
 // Нижняя граница доверительного интервала Уилсона: винрейт с поправкой на число игр.
 // 3 победы из 3 игр не должны стоять выше 60% на сотне игр.
 function wilson(w, n, z = 1.64) {
