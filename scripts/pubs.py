@@ -81,9 +81,11 @@ def _rows_from_match(m, item_ids):
 def fetch(wanted, item_ids, budget=450, min_start=0):
     """wanted: список (hero_id, pos), где мало про-игр. Возвращает строки всех игроков найденных матчей."""
     token = os.environ.get("STRATZ_TOKEN")
-    if not token or not wanted:
-        return []
     cache = _load()
+    if not token or not wanted:
+        # даже если докачать нечего (или STRATZ недоступен) — отдаём уже скачанное
+        return [r for v in cache.values() if (v.get("start") or 0) >= min_start
+                for r in _rows_from_match(v["m"], item_ids)]
     calls = fails = 0
     need = set()
     for hid, pos in wanted:

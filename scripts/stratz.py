@@ -1,5 +1,6 @@
 """Статистика Divine/Immortal пабов из STRATZ (нужен STRATZ_TOKEN)."""
 import json
+import re
 import os
 import statistics
 import sys
@@ -9,6 +10,7 @@ import urllib.request
 from collections import defaultdict
 
 URL = "https://api.stratz.com/graphql"
+_WAITED = {"ip": False}
 BRACKET = "DIVINE_IMMORTAL"
 
 QUERY = """
@@ -42,8 +44,16 @@ def gql(query, variables, token, tries=5):
                 raise RuntimeError(d["errors"][0].get("message"))
             return d["data"]
         except urllib.error.HTTPError as e:
-            msg = e.read()[:160].decode("utf-8", "replace")
+            msg = e.read()[:200].decode("utf-8", "replace")
             print(f"  ! STRATZ: {e.code} {msg} (попытка {i + 1})", file=sys.stderr)
+            m = re.search(r"frees up in (\d+) minute", msg)
+            if e.code == 403 and m and not _WAITED["ip"]:
+                # лимит «2 IP за 15 минут»: один раз ждём, пока он освободится, а не сдаёмся
+                wait = min(16, int(m.group(1)) + 1) * 60
+                print(f"  … жду {wait // 60} мин, пока STRATZ снимет лимит по IP", file=sys.stderr)
+                _WAITED["ip"] = True
+                time.sleep(wait)
+                continue
             time.sleep(30 * (i + 1) if e.code in (403, 429) else 5)
         except Exception as e:  # noqa: BLE001
             print(f"  ! STRATZ: {e} (попытка {i + 1})", file=sys.stderr)
