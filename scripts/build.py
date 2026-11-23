@@ -411,6 +411,10 @@ def main():
     lifts = reasons.lift_table(matches, fb_all)
     item_names = {k: v.get("dname", k) for k, v in items.items()}
     components = {c for v in items.values() for c in (v.get("components") or [])}
+    # все сапоги: сами boots и всё, что из них собирается (фазы, тредсы, арканы, гривзы, тревелы…)
+    boots_set = {"boots"}
+    for _ in range(4):
+        boots_set |= {k for k, v in items.items() if set(v.get("components") or []) & boots_set}
     # «чистые» компоненты: входят в другие предметы, сами не собираются и не имеют активной способности
     raw_parts = {k for k in components if not (items.get(k, {}).get("components"))
                  and not any(ab.get("type") == "active" for ab in (items.get(k, {}).get("abilities") or []))
@@ -668,10 +672,26 @@ def main():
                 })
                 used_items.update(i["key"] for i in its + after_items)
             item_stats = item_table(games, first_buy)
-            core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])[:7]
-            situational = sorted([i for i in item_stats if 0.12 <= i["share"] < 0.4],
+            core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])
+            # в основном билде только одни сапоги: самые популярные собранные (коричневые — лишь если других нет),
+            # остальные сапоги уходят в ситуативные
+            cb = [i for i in core if i["key"] in boots_set]
+            moved = []
+            if len(cb) > 1:
+                upgraded = [i for i in cb if i["key"] != "boots"] or cb
+                keep = max(upgraded, key=lambda i: i["share"])
+                moved = [i for i in cb if i is not keep and i["key"] != "boots"]
+                core = [i for i in core if i["key"] not in boots_set or i is keep]
+            core = core[:7]
+            situational = sorted([i for i in item_stats if 0.12 <= i["share"] < 0.4] + moved,
                                  key=lambda i: -i["share"])[:10]
             add_alternatives(core, item_stats, first_buy)
+            if any(i["key"] in boots_set for i in core):
+                for c in core:  # «или» не должно подсовывать вторые сапоги к не-сапогам
+                    if c["key"] not in boots_set and c.get("alt") and c["alt"]["key"] in boots_set:
+                        del c["alt"]
+            alt_keys = {c["alt"]["key"] for c in core if c.get("alt")}
+            situational = [i for i in situational if i["key"] not in alt_keys]  # уже стоит в билде через «или»
             standard = {i["key"] for i in core + situational} | {c["alt"]["key"] for c in core if c.get("alt")}
             used_items.update(i["key"] for i in start_items + core + situational)
             used_items.update(c["alt"]["key"] for c in core if c.get("alt"))
