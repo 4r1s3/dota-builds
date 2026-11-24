@@ -153,6 +153,9 @@ async function showHero(id, pos) {
   const qCore = d.core.map(c => c.alt
     ? `<span class="qor">${qi(c.key)}<small>или</small>${qi(c.alt.key)}</span>` : qi(c.key)).join(`<span class="qarr">›</span>`);
   const qSit = d.situational.slice(0, 7).map(c => qi(c.key)).join("");
+  const bear = d.bear;  // Lone Druid: билд медведя отдельно (по итоговому инвентарю медведя)
+  const qBear = bear ? bear.core.map(c => qi(c.key)).join(`<span class="qarr">›</span>`) : "";
+  const qBearSit = bear ? bear.situational.slice(0, 5).map(c => qi(c.key)).join("") : "";
   const qTal = (d.talents || []).filter(t => t.sample).map(t => {
     const o = t.options.slice().sort((a, b) => b.pick - a.pick)[0];
     return `<span class="qt" data-tip="берут в ${pct(o.pick)} игр"><b>${t.level}</b>${esc(talentName(o.name))}</span>`;
@@ -161,6 +164,8 @@ async function showHero(id, pos) {
     ${qStart ? `<div class="qrow"><span class="ql">Старт</span><div class="qis">${qStart}</div></div>` : ""}
     ${qCore ? `<div class="qrow"><span class="ql">Билд</span><div class="qis">${qCore}</div></div>` : ""}
     ${qSit ? `<div class="qrow"><span class="ql">Иногда берут</span><div class="qis">${qSit}</div></div>` : ""}
+    ${qBear ? `<div class="qrow"><span class="ql">Медведь</span><div class="qis">${qBear}</div></div>` : ""}
+    ${qBearSit ? `<div class="qrow"><span class="ql">Медведю иногда</span><div class="qis">${qBearSit}</div></div>` : ""}
     ${skills ? `<div class="qrow"><span class="ql">Прокачка</span><div class="skills qsk">${skills}</div></div>` : ""}
     ${qTal ? `<div class="qrow"><span class="ql">Таланты</span><div class="qts">${qTal}</div></div>` : ""}
   </div>
@@ -183,6 +188,10 @@ async function showHero(id, pos) {
     <div class="items">${start || '<span class="stats">—</span>'}</div>
     <h2>Основной билд — по порядку покупки</h2><div class="items">${core || '<span class="stats">—</span>'}</div>
     <h2>Ситуативные предметы — по популярности</h2><div class="items">${sit || '<span class="stats">—</span>'}</div>
+    ${bear ? `<h2>Медведь — по порядку покупки</h2>
+      <div class="legend">По итоговому инвентарю медведя в ${bear.games} играх: что в нём лежало к концу игры. Предметы героя выше посчитаны по тем же играм, без вещей медведя.</div>
+      <div class="items">${bear.core.map(c => `<div class="ic core" data-tip="${nm(c.key)}: обычно покупают на ${mmss(c.time)}, у медведя в ${pct(c.share)} игр"><div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div><div class="when">~${Math.round(c.time / 60)} мин</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр</div></div>`).join("") || '<span class="stats">—</span>'}</div>
+      ${bear.situational.length ? `<div class="subh">Медведю иногда берут</div><div class="items">${bear.situational.map(c => `<div class="ic" data-tip="${nm(c.key)}: ~${mmss(c.time)}, у медведя в ${pct(c.share)} игр"><div class="pic">${icon(c.key)}</div><div class="nm">${nm(c.key)}</div>${bar(c.share)}<div class="sub">${pct(c.share)} игр · ~${Math.round(c.time / 60)} мин</div></div>`).join("")}</div>` : ""}` : ""}
     ${SHOW_ITEM_WR ? `<div class="legend">«вр» — винрейт с предметом или талантом. Считается только по играм, отобранным без оглядки на исход (вся история топ-игроков лидерборда и про-матчи), и показывается, если таких игр от 15. Доля предмета — среди игр, которые дожили до времени его покупки.</div>` : ""}
     <h2>${usePub ? "Игры Immortal-пабов" : "Про-игры"}</h2>
     <div class="legend"><i></i> — предмет не из стандартного билда, под игрой написано почему · порог «игра шла очень хорошо»: ${k(th.stompAdv)} к ${th.stompMinute}-й минуте</div>

@@ -73,7 +73,49 @@ def explorer(sql):
     return d["rows"]
 
 
+AU_SQL = None
+
+
+def _au_sql():
+    """Колонка с инвентарём медведя Lone Druid; если в OpenDota её нет — работаем без неё."""
+    global AU_SQL
+    if AU_SQL is None:
+        try:
+            explorer("SELECT to_json(additional_units)::text AS au FROM player_matches WHERE hero_id = 80 "
+                     "AND additional_units IS NOT NULL LIMIT 1")
+            AU_SQL = "\n               CASE WHEN pm.hero_id = 80 THEN to_json(pm.additional_units)::text END AS additional_units,"
+        except Exception as e:
+            print(f"  ! additional_units недоступна: {e}")
+            AU_SQL = ""
+    return AU_SQL
+
+
+def bear_from_au(text, item_by_id):
+    """additional_units OpenDota -> ключи предметов медведя (или None, если данных нет)."""
+    if not text:
+        return None
+    try:
+        units = json.loads(text)
+    except ValueError:
+        return None
+    if isinstance(units, dict):
+        units = [units]
+    for u in units or []:
+        if isinstance(u, str):
+            try:
+                u = json.loads(u)
+            except ValueError:
+                continue
+        if not isinstance(u, dict) or "bear" not in str(u.get("unitname", "bear")):
+            continue
+        ids = [u.get(f) for f in ("item_0", "item_1", "item_2", "item_3", "item_4", "item_5",
+                                   "backpack_0", "backpack_1", "backpack_2")]
+        return [k for k in (item_by_id.get(str(i)) for i in ids if i) if k]
+    return None
+
+
 def fetch_rows(days, min_start=0):
+    AU = _au_sql()
     now = int(time.time())
     rows = []
     chunk = 5
@@ -86,7 +128,7 @@ def fetch_rows(days, min_start=0):
         SELECT pm.match_id, pm.hero_id, pm.account_id, pm.player_slot, pm.lane_role,
                pm.kills, pm.deaths, pm.assists, pm.gold_per_min, pm.net_worth,
                pm.purchase_log::text AS purchase_log,
-               pm.ability_upgrades_arr::text AS abilities,
+               pm.ability_upgrades_arr::text AS abilities,{AU}
                m.radiant_win, m.start_time, m.duration,
                m.radiant_gold_adv::text AS gold_adv,
                l.name AS league, np.name AS pro_name, np.team_name AS team
@@ -268,6 +310,10 @@ def main():
     fresh_patch = patch_age < 8
     print(f"Про-матчи за {days} дн., только патч {patch_name} (вышел {patch_age:.1f} дн. назад)…")
     rows = fetch_rows(days, patch_ts)
+    for r in rows:
+        if r.get("additional_units"):
+            r["bear"] = bear_from_au(r.pop("additional_units"), item_ids)
+    print(f"  медведь Lone Druid: инвентарь есть в {sum(1 for r in rows if r.get('bear') is not None)} про-играх")
     pro_match_count = len({r["match_id"] for r in rows})
     few_pro = pro_match_count < 60  # про-матчей на новом патче мало — строим статистику на Immortal-пабах
 
@@ -526,6 +572,9 @@ def main():
         return game_cards(gs, fbs, standard_ | local, gpm)
 
     START_GOLD = 600
+    BEAR_MIN = 10  # от стольких игр с известным инвентарём медведя показываем его билд
+    BEAR_TRIVIAL = {"branches", "quelling_blade", "tango", "flask", "clarity", "tpscroll", "ward_observer",
+                    "ward_sentry", "dust", "smoke_of_deceit", "enchanted_mango", "faerie_fire", "blood_grenade"}
     PUB_BUILD_MIN = 10   # меньше паб-игр — отдельный паб-билд не строим
     MIN_PRO_STD = 15     # от стольких про-игр «стандартный билд» для пометки необычных предметов берём из про
 
@@ -620,6 +669,7 @@ def main():
             # --- предметы
             start_counter = Counter()
             first_buy = []
+            bear_buy = []
             start_sets = defaultdict(list)
             after_by_game = {}
             for g in games:
@@ -640,6 +690,12 @@ def main():
                 for k, t in list(seen.items()):
                     if any(t <= t2 and k in comp_of(k2) for k2, t2 in seen.items() if k2 != k):
                         del seen[k]
+                bear = g.get("bear")
+                if bear is not None:
+                    # предметы из итогового инвентаря медведя — это билд медведя, а не героя
+                    bset = set(bear) - BEAR_TRIVIAL
+                    bear_buy.append((g, {k: t for k, t in seen.items() if k in bset}))
+                    seen = {k: t for k, t in seen.items() if k not in bset}
                 first_buy.append(seen)
             n_start = sum(len(v) for v in start_sets.values()) or 1
             start_items = []
@@ -671,7 +727,23 @@ def main():
                     "players": players,
                 })
                 used_items.update(i["key"] for i in its + after_items)
-            item_stats = item_table(games, first_buy)
+            # у Lone Druid предметы героя считаем только по играм, где известен инвентарь медведя —
+            # иначе в билд героя попадут вещи медведя
+            if len(bear_buy) >= BEAR_MIN:
+                bear_ids = {id(g) for g, _ in bear_buy}
+                pairs = [(g, fb) for g, fb in zip(games, first_buy) if id(g) in bear_ids]
+                item_stats = item_table([g for g, _ in pairs], [fb for _, fb in pairs])
+                b_stats = item_table([g for g, _ in bear_buy], [fb for _, fb in bear_buy])
+                bear_b = {
+                    "games": len(bear_buy),
+                    "core": sorted([i for i in b_stats if i["share"] >= 0.35], key=lambda i: i["time"])[:6],
+                    "situational": sorted([i for i in b_stats if 0.12 <= i["share"] < 0.35],
+                                          key=lambda i: -i["share"])[:8],
+                }
+                used_items.update(i["key"] for i in bear_b["core"] + bear_b["situational"])
+            else:
+                item_stats = item_table(games, first_buy)
+                bear_b = None
             core = sorted([i for i in item_stats if i["share"] >= 0.4], key=lambda i: i["time"])
             # в основном билде только одни сапоги: самые популярные собранные (коричневые — лишь если других нет),
             # остальные сапоги уходят в ситуативные
@@ -701,7 +773,10 @@ def main():
                 "skills": skill_seq, "skillsExact": skill_exact,
                 "talents": talents, "start": start_items, "startSets": start_variants, "core": core,
                 "situational": situational,
+                **({"bear": bear_b} if bear_b else {}),
             }
+            if bear_b:
+                standard |= {i["key"] for i in bear_b["core"] + bear_b["situational"]}
             return build, standard, med_gpm, item_stats, first_buy
 
         for pos in (1, 2, 3, 4, 5):

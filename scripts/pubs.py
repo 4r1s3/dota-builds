@@ -21,7 +21,8 @@ GUIDE_Q = """query($h: Short!, $p: MatchPlayerPositionType!) {
 MATCH_FIELDS = """id startDateTime durationSeconds didRadiantWin rank averageRank radiantNetworthLeads
   players { heroId isRadiant position kills deaths assists goldPerMinute networth
     steamAccount { name seasonRank seasonLeaderboardRank proSteamAccount { name } }
-    abilities { abilityId time level } stats { itemPurchases { time itemId } } }"""
+    abilities { abilityId time level } stats { itemPurchases { time itemId } }
+    additionalUnit { item0Id item1Id item2Id item3Id item4Id item5Id backpack0Id backpack1Id backpack2Id } }"""
 
 
 def match_query(ids):
@@ -74,8 +75,15 @@ def _rows_from_match(m, item_ids):
             "rank": acc.get("seasonRank") or m.get("rank"),
             "match_rank": m.get("rank"),  # ранг всего матча: 80 = Immortal, 71–75 = Divine
             "lb": acc.get("seasonLeaderboardRank"),
+            **({"bear": [k for k in (item_ids.get(str(i)) for i in _bear(p["additionalUnit"])) if k]}
+               if p.get("additionalUnit") and p["heroId"] == 80 else {}),
         })
     return rows
+
+
+def _bear(unit):
+    return [unit[f] for f in ("item0Id", "item1Id", "item2Id", "item3Id", "item4Id", "item5Id",
+                              "backpack0Id", "backpack1Id", "backpack2Id") if unit.get(f)]
 
 
 def fetch(wanted, item_ids, budget=450, min_start=0):

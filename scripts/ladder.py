@@ -23,7 +23,14 @@ MATCH_FIELDS = """id startDateTime durationSeconds didRadiantWin rank radiantNet
   pickBans { heroId order isPick isRadiant }
   players { heroId isRadiant position partyId kills deaths assists goldPerMinute networth
     steamAccountId steamAccount { name seasonLeaderboardRank }
-    abilities { abilityId time } stats { itemPurchases { time itemId } } }"""
+    abilities { abilityId time } stats { itemPurchases { time itemId } }
+    additionalUnit { item0Id item1Id item2Id item3Id item4Id item5Id backpack0Id backpack1Id backpack2Id } }"""
+
+
+def bear_items(unit):
+    """Итоговый инвентарь доп. юнита (медведь Lone Druid): id предметов в слотах и рюкзаке."""
+    return [unit[f] for f in ("item0Id", "item1Id", "item2Id", "item3Id", "item4Id", "item5Id",
+                              "backpack0Id", "backpack1Id", "backpack2Id") if unit.get(f)]
 
 
 def _load():
@@ -63,6 +70,7 @@ def _compact(m):
             "lb": acc.get("seasonLeaderboardRank"), "st": stages.get(p["heroId"]),
             "ab": [a["abilityId"] for a in sorted(p.get("abilities") or [], key=lambda a: a.get("time") or 0)],
             "buy": [[b["time"], b["itemId"]] for b in ((p.get("stats") or {}).get("itemPurchases") or [])],
+            **({"bear": bear_items(p.get("additionalUnit"))} if p.get("additionalUnit") and p["heroId"] == 80 else {}),
         })
     return {"start": m["startDateTime"], "dur": m["durationSeconds"], "rw": m["didRadiantWin"],
             "rank": m.get("rank"), "adv": m.get("radiantNetworthLeads") or [], "p": ps}
@@ -204,5 +212,6 @@ def to_rows(matches, item_ids, min_start=0):
                 "gold_adv": "{" + ",".join(str(x) for x in m.get("adv") or []) + "}",
                 "league": "Immortal паб", "pro_name": p.get("name"), "src": "pub", "lad": True,
                 "rank": m.get("rank"), "match_rank": m.get("rank"), "lb": p.get("lb"),
+                **({"bear": [k for k in (item_ids.get(str(i)) for i in p["bear"]) if k]} if "bear" in p else {}),
             })
     return rows
