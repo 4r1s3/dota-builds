@@ -541,7 +541,7 @@ async function showMeta(pos) {
   const tabs = [0, 1, 2, 3, 4, 5].map(p => `<button class="tab ${p === (pos || 0) ? "on" : ""}" data-mpos="${p}">${p ? POS[p] : "Все позиции"}</button>`).join("");
   const sortBtn = (k2, label, tip) => `<button class="sbtn ${META_SORT === k2 ? "on" : ""}" data-msort="${k2}" data-tip="${tip}">${label}</button>`;
   const fresh = DB.meta.freshPatch;
-  $("#metaview").innerHTML = `<h1 class="mh">Мета ${META_PERIOD === "8d" && hasDaily ? "за 8 дней" : "патча " + esc(DB.meta.patch)}</h1>
+  $("#metaview").innerHTML = `<h1 class="mh">Мета ${META_PERIOD === "8d" && hasDaily ? "за 8 дней" : "патча " + esc(META.patch || DB.meta.patch)}</h1>
     <div class="stats">источник: ${esc(META.source || "про-матчи и Immortal-пабы")}${fresh ? " · патч свежий, цифры ещё могут сдвигаться" : ""}${hasDaily ? "" : ` · ${META.matches.toLocaleString("ru-RU")} матчей`}</div>
     ${`<div class="src">Игры:
       <button class="sbtn ${!soloMode ? "on" : ""}" data-mgames="all" data-tip="Все игры в ранге Immortal">Все</button>

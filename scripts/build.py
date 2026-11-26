@@ -306,6 +306,20 @@ def main():
         days = min(days, since_patch)
     patch_age = (time.time() - patch_ts) / 86400 if patch_ts else 999
     prev_patch_name = patches[-2]["name"] if len(patches) > 1 else ""
+    # буквенные патчи (7.42a, 7.42b…) OpenDota отдельно не знает — берём их у Valve.
+    # Билды считаем по всему большому патчу (нужен объём игр), а винрейты в «Мете» — с последнего буквенного
+    meta_patch_ts, meta_patch_name = patch_ts, patch_name
+    try:
+        req = urllib.request.Request("https://www.dota2.com/datafeed/patchnoteslist?language=english",
+                                     headers={"User-Agent": "dota-builds"})
+        vp = json.load(urllib.request.urlopen(req, timeout=30)).get("patches") or []
+        last = max((x for x in vp if str(x.get("patch_number", "")).startswith(patch_name)),
+                   key=lambda x: x.get("patch_timestamp") or 0, default=None)
+        if last and (last.get("patch_timestamp") or 0) > patch_ts + 86400:
+            meta_patch_ts, meta_patch_name = last["patch_timestamp"], last["patch_number"]
+            print(f"Буквенный патч {meta_patch_name}: винрейты в «Мете» считаются с него")
+    except Exception as e:
+        print(f"  ! список патчей Valve недоступен: {e}")
     # недельная статистика STRATZ первые дни после патча смешана со старым патчем
     fresh_patch = patch_age < 8
     print(f"Про-матчи за {days} дн., только патч {patch_name} (вышел {patch_age:.1f} дн. назад)…")
@@ -364,9 +378,14 @@ def main():
     # винрейты Immortal без перекоса: сводная статистика STRATZ по дням после патча
     winrates = None
     if use_stratz and patch_ts:
-        first_full_day = (int(patch_ts) // 86400 + 1) * 86400
+        first_full_day = (int(meta_patch_ts) // 86400 + 1) * 86400
         try:
             winrates = stratz.hero_winrates(first_full_day)
+            if (not winrates or not winrates.get("days")) and meta_patch_ts != patch_ts:
+                # по буквенному патчу ещё нет ни одного полного дня — пока считаем по всему большому патчу
+                print("  по буквенному патчу ещё нет полного дня статистики — берём весь патч")
+                meta_patch_ts, meta_patch_name = patch_ts, patch_name
+                winrates = stratz.hero_winrates((int(patch_ts) // 86400 + 1) * 86400)
             if winrates:
                 print(f"Винрейты Immortal (STRATZ): {winrates['days']} дн., "
                       f"{sum(g for g, _ in winrates['all'].values()) // 10} матчей")
@@ -1019,7 +1038,7 @@ def main():
     daily = None
     if use_stratz and patch_ts:
         try:
-            first_full_day = (int(patch_ts) // 86400 + 1) * 86400
+            first_full_day = (int(meta_patch_ts) // 86400 + 1) * 86400
             since = min(first_full_day, (int(time.time()) // 86400 - 9) * 86400)
             daily = stratz.hero_daily(since)
             if daily:
@@ -1032,8 +1051,8 @@ def main():
     (OUT / "meta.json").write_text(json.dumps({"matches": meta_matches, "source": meta_source, "updated": int(time.time()),
                                                "days": (winrates or {}).get("days", 0),
                                                "dayList": (daily or {}).get("days", []),
-                                               "patchDay": (int(patch_ts) // 86400 + 1) * 86400 if patch_ts else 0,
-                                               "patch": patch_name,
+                                               "patchDay": (int(meta_patch_ts) // 86400 + 1) * 86400 if meta_patch_ts else 0,
+                                               "patch": meta_patch_name,
                                                "pro": pro_match_count, "heroes": meta_list},
                                               ensure_ascii=False, separators=(",", ":")))
     hn = {int(k): v["localized_name"] for k, v in heroes.items()}
